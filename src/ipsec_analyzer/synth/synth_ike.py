@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from core.constants import IKE_SA_INIT_FULL_TRANSCRIPT_AUTH
+from ipsec_analyzer.core.constants import IKE_SA_INIT_FULL_TRANSCRIPT_AUTH
 
 NOTIFY_POSTURE_STATES = ("both", "request_only", "response_only", "neither")
 

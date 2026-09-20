@@ -3,8 +3,8 @@ from itertools import combinations
 
 import pytest
 
-from core.constants import SUITE_FRAMINGS, SuiteFraming
-from synth.synth_esp import SyntheticPacket, ciphertext_len, esp_wire_len, synth_esp_flow
+from ipsec_analyzer.core.constants import SUITE_FRAMINGS, SuiteFraming
+from ipsec_analyzer.synth.synth_esp import SyntheticPacket, ciphertext_len, esp_wire_len, synth_esp_flow
 
 
 class TestRoundTripCongruence:

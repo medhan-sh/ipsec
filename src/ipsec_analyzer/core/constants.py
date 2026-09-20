@@ -132,3 +132,33 @@ ADDITIONAL_KEY_EXCHANGE = 16441
 # RFC 9867 §4: postquantum preshared key (PPK) support/use signaling.
 PPK_SUPPORT = 16445
 PPK_IDENTITY_KEY = 16446
+
+
+# --- IKEv2 Diffie-Hellman transform group numbers ---
+# Amendment (Phase 2, same basis as the notify-type amendment above):
+# ARCHITECTURE.md names "SuiteFraming table, DH groups, notify types" as
+# core/constants.py's contents; this completes the second item. Values
+# given directly by MVP_BUILD_PROMPT.md Phase 2, not inferred — cited here
+# to IANA's "Transform Type 4 (D-H)" registry entries per group.
+# VERIFY BY HAND, same as the rest of this file.
+WEAK_DH_GROUPS: frozenset[int] = frozenset({
+    1,   # 768-bit MODP, RFC 2409
+    2,   # 1024-bit MODP, RFC 2409
+    5,   # 1536-bit MODP, RFC 3526
+    22,  # 1024-bit MODP w/ 160-bit prime order subgroup, RFC 5114
+    23,  # 2048-bit MODP w/ 224-bit prime order subgroup, RFC 5114
+    24,  # 2048-bit MODP w/ 256-bit prime order subgroup, RFC 5114
+})
+
+STRONG_DH_GROUPS: frozenset[int] = frozenset({
+    14,  # 2048-bit MODP, RFC 3526
+    15,  # 3072-bit MODP, RFC 3526
+    16,  # 4096-bit MODP, RFC 3526
+    17,  # 6144-bit MODP, RFC 3526
+    18,  # 8192-bit MODP, RFC 3526
+    19,  # 256-bit random ECP, RFC 5903
+    20,  # 384-bit random ECP, RFC 5903
+    21,  # 521-bit random ECP, RFC 5903
+    31,  # Curve25519, RFC 8031
+    32,  # Curve448, RFC 8031
+})

@@ -1,6 +1,6 @@
 import inspect
 
-from core.candidates import CandidateSet, eliminate, rank
+from ipsec_analyzer.core.candidates import CandidateSet, eliminate, rank
 
 
 class TestCandidateSetEliminate:

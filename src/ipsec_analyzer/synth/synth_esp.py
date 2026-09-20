@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.constants import SuiteFraming
+from ipsec_analyzer.core.constants import SuiteFraming
 
 
 def ciphertext_len(inner_plaintext_len: int, framing: SuiteFraming) -> int:
