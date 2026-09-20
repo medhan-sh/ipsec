@@ -98,6 +98,7 @@ class EspPacketObservation:
 class EspConstraintResult:
     granularity_claim: Claim
     icv_claim: Claim | None  # None iff no anchor was found/usable
+    null_encryption_claim: Claim | None  # None unless NULL-ENC is positively confirmed (see _apply_null_encryption_channel)
     candidate_set: CandidateSet  # always returned — see module docstring
 
 
@@ -249,26 +250,40 @@ def _icv_channel(
 
 
 def _apply_null_encryption_channel(
-    candidate_set: CandidateSet, observations: Sequence[EspPacketObservation]
-) -> CandidateSet:
+    candidate_set: CandidateSet,
+    observations: Sequence[EspPacketObservation],
+    evidence: tuple[int, ...],
+) -> tuple[CandidateSet, Claim | None]:
     """Independent of granularity/TFC — see module docstring. Only ever
     narrows whatever is passed in; never widens or resurrects.
+
+    Returns the (possibly narrowed) candidate set, plus a `Claim` for
+    Phase 5's rule 10 ("NULL encryption") *only* when NULL-ENC is
+    positively confirmed — i.e. survives this channel with real supporting
+    evidence, not merely "wasn't eliminated for lack of trying." Added on
+    review: rule 10's condition needs something in the ClaimLedger to
+    check (assessment/ reads claims, not `CandidateSet` internals
+    directly), and "NULL-ENC is still in `surviving`" isn't itself a
+    claim — it's the absence of an elimination, which is exactly the kind
+    of implicit signal invariant 3 says not to treat as equivalent to an
+    explicit finding.
     """
     null_like_survivors = frozenset(
         suite_id for suite_id in candidate_set.surviving if SUITE_FRAMINGS[suite_id].explicit_iv == 0
     )
     if not null_like_survivors:
-        return candidate_set
+        return candidate_set, None
 
     representative = next((o for o in observations if o.ciphertext_prefix), None)
     if representative is None:
-        return eliminate(
+        candidate_set = eliminate(
             candidate_set,
             set(null_like_survivors),
             "no payload byte evidence available to confirm NULL encryption; real ESP "
             "ciphertext is essentially never coincidentally NULL, so absent positive "
             "evidence NULL-ENC candidates are eliminated",
         )
+        return candidate_set, None
 
     confirmed = frozenset(
         suite_id
@@ -279,18 +294,34 @@ def _apply_null_encryption_channel(
         )
     )
     doomed_null = null_like_survivors - confirmed
-    if not doomed_null:
-        return candidate_set
+    if doomed_null:
+        version_nibble = representative.ciphertext_prefix[0] >> 4 if representative.ciphertext_prefix else None
+        candidate_set = eliminate(
+            candidate_set,
+            set(doomed_null),
+            f"payload at the ciphertext offset does not parse as a length-consistent "
+            f"IP header (version nibble {hex(version_nibble) if version_nibble is not None else 'n/a'}); "
+            f"real ESP ciphertext is effectively random and essentially never parses "
+            f"this way, so NULL encryption is eliminated absent positive evidence",
+        )
 
-    version_nibble = representative.ciphertext_prefix[0] >> 4 if representative.ciphertext_prefix else None
-    return eliminate(
-        candidate_set,
-        set(doomed_null),
-        f"payload at the ciphertext offset does not parse as a length-consistent "
-        f"IP header (version nibble {hex(version_nibble) if version_nibble is not None else 'n/a'}); "
-        f"real ESP ciphertext is effectively random and essentially never parses "
-        f"this way, so NULL encryption is eliminated absent positive evidence",
+    if not confirmed:
+        return candidate_set, None
+
+    null_encryption_claim = Claim(
+        field="esp.null_encryption_confirmed",
+        value=True,
+        tier=Tier.INFERRED_SIDE_CHANNEL,
+        confidence=1.0,
+        method="esp_constraints.null_check",
+        evidence=evidence,
+        caveats=(
+            f"payload at the ciphertext offset parses as a length-consistent IP header "
+            f"for {sorted(confirmed)}; consistent with NULL encryption (no confidentiality "
+            f"protection on this traffic)",
+        ),
     )
+    return candidate_set, null_encryption_claim
 
 
 def analyze_esp_flow(
@@ -336,7 +367,7 @@ def analyze_esp_flow(
 
     # NULL-encryption channel: runs regardless of whether granularity/TFC
     # succeeded (see module docstring — this is the composition fix).
-    candidate_set = _apply_null_encryption_channel(candidate_set, observations)
+    candidate_set, null_encryption_claim = _apply_null_encryption_channel(candidate_set, observations, evidence)
 
     candidate_set = CandidateSet(
         universe=candidate_set.universe,
@@ -345,4 +376,9 @@ def analyze_esp_flow(
         indistinguishable=_indistinguishable_groups(candidate_set.surviving),
     )
 
-    return EspConstraintResult(granularity_claim=granularity_claim, icv_claim=icv_claim, candidate_set=candidate_set)
+    return EspConstraintResult(
+        granularity_claim=granularity_claim,
+        icv_claim=icv_claim,
+        null_encryption_claim=null_encryption_claim,
+        candidate_set=candidate_set,
+    )

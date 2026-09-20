@@ -53,6 +53,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
+from ipsec_analyzer.core.claims import Claim, Tier
 from ipsec_analyzer.protocol.records import PacketRecord
 
 IKE_PORT = 500
@@ -174,3 +175,23 @@ def _to_esp_record(record: PacketRecord, payload: bytes) -> EspRecord | None:
         return None  # too short to even carry an SPI+Sequence header — skip, don't crash
     spi = int.from_bytes(payload[:4], "big")
     return EspRecord(frame_no=record.frame_no, src=record.src, dst=record.dst, spi=spi, payload=payload)
+
+
+def extract_ah_detected_claim(result: DemuxResult) -> Claim | None:
+    """OBSERVED claim that AH (IP protocol 51) is in use, or None if no AH
+    traffic was seen. Added for Phase 5's rule 11 ("AH in use
+    (deprecated)") — a direct read of the IP protocol field, not an
+    inference, so OBSERVED at confidence 1.0 like `ike_parse.py`'s claims.
+    Deep AH analysis stays out of scope (per MVP_BUILD_PROMPT.md Phase 4's
+    "Do not build"); this only reports that AH frames exist.
+    """
+    if not result.ah_frames:
+        return None
+    return Claim(
+        field="ah.detected",
+        value=True,
+        tier=Tier.OBSERVED,
+        confidence=1.0,
+        method="demux.extract_ah_detected_claim",
+        evidence=result.ah_frames,
+    )
