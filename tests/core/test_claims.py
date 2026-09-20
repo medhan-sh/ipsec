@@ -1,6 +1,6 @@
 import pytest
 
-from core.claims import Claim, Tier, TierPromotionError
+from ipsec_analyzer.core.claims import Claim, Tier, TierPromotionError
 
 
 def make_observed(field="x", value=1, evidence=(1,)):

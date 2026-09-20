@@ -14,6 +14,7 @@ import ast
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+SRC_ROOT = REPO_ROOT / "src" / "ipsec_analyzer"
 
 # core: the spine, imports nothing from the project.
 # synth: "test oracles, not shipped logic" (ARCHITECTURE.md §4) — a sibling
@@ -32,29 +33,37 @@ ALLOWED_PROJECT_IMPORTS: dict[str, set[str]] = {
 PROJECT_PACKAGES = set(ALLOWED_PROJECT_IMPORTS)
 
 
+def _sublayer(dotted: str) -> str | None:
+    """`ipsec_analyzer.core.constants` -> `"core"`; anything else -> None."""
+    parts = dotted.split(".")
+    if len(parts) >= 2 and parts[0] == "ipsec_analyzer" and parts[1] in PROJECT_PACKAGES:
+        return parts[1]
+    return None
+
+
 def _project_imports(py_file: Path) -> set[str]:
     tree = ast.parse(py_file.read_text(), filename=str(py_file))
     found: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                top = alias.name.split(".")[0]
-                if top in PROJECT_PACKAGES:
-                    found.add(top)
+                layer = _sublayer(alias.name)
+                if layer:
+                    found.add(layer)
         elif isinstance(node, ast.ImportFrom):
             if node.level and node.level > 0:
                 continue  # relative import within the same package
             if node.module:
-                top = node.module.split(".")[0]
-                if top in PROJECT_PACKAGES:
-                    found.add(top)
+                layer = _sublayer(node.module)
+                if layer:
+                    found.add(layer)
     return found
 
 
 def test_dependency_rule_is_respected():
     violations = []
     for package, allowed in ALLOWED_PROJECT_IMPORTS.items():
-        package_dir = REPO_ROOT / package
+        package_dir = SRC_ROOT / package
         if not package_dir.is_dir():
             continue  # not built yet — nothing to check
         for py_file in package_dir.rglob("*.py"):

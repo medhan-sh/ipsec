@@ -1,7 +1,7 @@
 import pytest
 
-from core.constants import IKE_SA_INIT_FULL_TRANSCRIPT_AUTH
-from synth.synth_ike import synth_downgrade_prevention_posture, synth_ike_sa_init
+from ipsec_analyzer.core.constants import IKE_SA_INIT_FULL_TRANSCRIPT_AUTH
+from ipsec_analyzer.synth.synth_ike import synth_downgrade_prevention_posture, synth_ike_sa_init
 
 
 class TestSynthIkeSaInit:

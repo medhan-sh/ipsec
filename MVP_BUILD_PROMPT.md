@@ -66,7 +66,14 @@ Additional constraints for this MVP:
 - `pytest` — tests
 - `tshark` — external binary, called via `subprocess`, for IKE dissection
 
-Nothing else without asking. No pandas, no numpy unless a phase explicitly calls for it, no web framework, no Docker.
+**Docker is the development and execution environment.** A single `Dockerfile` based on
+`python:3.11-slim` with `tshark` installed is the canonical way to run this project — the
+host Python environment is not reliable and must not be depended on. Build it in Phase 0
+(or the first phase after you read this) and run all tests and all CLI invocations inside it.
+Pin the tshark version; its JSON output shape varies across releases.
+
+Nothing else without asking. No pandas, no numpy unless a phase explicitly calls for it,
+no web framework.
 
 ---
 
@@ -126,7 +133,7 @@ class Claim:
                 )
 ```
 
-### 4.2 `CandidateSet` (in `claims.py`)
+### 4.2 `CandidateSet` (in `core/candidates.py`)
 
 ```python
 @dataclass(frozen=True)
@@ -189,30 +196,26 @@ In the Phase 0 report, list **every** constant you added with its RFC section so
 
 ## 5. Repo layout
 
+**`ARCHITECTURE.md` is authoritative for layout and layering.** Read it before Phase 0.
+The summary below is orientation only; where it differs, ARCHITECTURE.md wins.
+
+Four layers under `src/ipsec_analyzer/`, with **imports pointing downward only**:
+
 ```
-ipsec-analyzer/
-  claims.py              # FROZEN after Phase 0
-  constants.py           # FROZEN after Phase 0
-  ingest.py
-  demux.py
-  ike_parse.py
-  notify_posture.py
-  esp_constraints.py
-  verdict.py
-  report.py
-  templates/report.html.j2
-  policy/
-    engine.py
-    rules.yaml
-  synth/
-    synth_esp.py
-    synth_ike.py
-  cli.py
-  tests/
-  reports/               # phase reports live here
-  captures/              # downloaded public pcaps, gitignored
-  CLAUDE.md
+core/        claims.py  candidates.py  ledger.py  constants.py    FROZEN after Phase 0
+protocol/    records.py  ingest.py  demux.py  ike_parse.py        imports core only
+inference/   notify_posture.py  esp_constraints/                  imports core + protocol
+assessment/  engine.py  verdict.py  rules/rules.yaml              imports core, reads ledger
+output/      findings.py  report.py  templates/                   imports findings doc only
+synth/       synth_esp.py  synth_ike.py                           test oracles
+cli.py
 ```
+
+`assessment/` must never read a packet. `protocol/` must never import from `inference/`.
+Write `tests/test_import_graph.py` in Phase 0 to enforce this.
+
+Non-source directories: `tests/`, `reports/` (phase reports), `captures/` (gitignored, with
+`FETCH.md` listing the URL and sha256 of each public capture).
 
 ---
 
@@ -446,7 +449,9 @@ CLI: `ipsec-analyze capture.pcap -o report.html [--json findings.json]`
 
 ## 7. Explicitly out of scope for this MVP
 
-Do not build, do not stub, do not scaffold for: the lab testbed, the ML traffic classifier, conformal prediction, SHAP, the implementation fingerprint database, CVE lookup, the interactive dashboard, live capture, replay-as-live, RFC 7383 reassembly, deep AH analysis, TCP/4500 encapsulation, any REST API, Docker, or the LLM narrative layer.
+Do not build, do not stub, do not scaffold for: the lab testbed, the ML traffic classifier, conformal prediction, SHAP, the implementation fingerprint database, CVE lookup, the interactive dashboard, live capture, replay-as-live, RFC 7383 reassembly, deep AH analysis, TCP/4500 encapsulation, any REST API, or the LLM narrative layer.
+
+(Docker is **in** scope — see §3. It is the execution environment, not a deliverable feature.)
 
 If a phase seems to need one of these, it doesn't. Ask.
 

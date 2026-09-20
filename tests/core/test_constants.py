@@ -1,4 +1,4 @@
-from core.constants import (
+from ipsec_analyzer.core.constants import (
     ADDITIONAL_KEY_EXCHANGE,
     IKE_SA_INIT_FULL_TRANSCRIPT_AUTH,
     PPK_IDENTITY_KEY,
