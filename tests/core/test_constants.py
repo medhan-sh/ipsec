@@ -1,4 +1,11 @@
-from constants import SUITE_FRAMINGS, SuiteFraming
+from core.constants import (
+    ADDITIONAL_KEY_EXCHANGE,
+    IKE_SA_INIT_FULL_TRANSCRIPT_AUTH,
+    PPK_IDENTITY_KEY,
+    PPK_SUPPORT,
+    SUITE_FRAMINGS,
+    SuiteFraming,
+)
 
 
 def test_at_least_35_suites():
@@ -47,3 +54,14 @@ def test_suiteframing_is_frozen():
         assert False, "SuiteFraming should be immutable"
     except AttributeError:
         pass
+
+
+def test_notify_type_constants_are_distinct_positive_ints():
+    notify_types = {
+        IKE_SA_INIT_FULL_TRANSCRIPT_AUTH,
+        ADDITIONAL_KEY_EXCHANGE,
+        PPK_SUPPORT,
+        PPK_IDENTITY_KEY,
+    }
+    assert len(notify_types) == 4, "notify type constants must be distinct"
+    assert all(isinstance(n, int) and n > 0 for n in notify_types)

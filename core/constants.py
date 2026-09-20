@@ -9,6 +9,16 @@ Invariant 5 (never hand-invent a framing constant): every row here traces to
 a cited RFC. Where a value was derived by combining two RFCs (e.g. a cipher
 RFC for IV/padding and a separate integrity RFC for ICV length), both are
 cited.
+
+Amendment (post Phase 1 review, logged in reports/phase-1.md addendum):
+relocated from repo root into core/ per ARCHITECTURE.md's layering, and the
+IKEv2 notify-type constants below were added — ARCHITECTURE.md names
+"SuiteFraming table, DH groups, notify types" as core/constants.py's
+contents; Phase 0 only delivered the first. Adding the notify types here
+(rather than in synth/synth_ike.py, where they were originally and
+incorrectly defined) closes that gap so Phase 2's notify_posture.py and
+Phase 1's synth_ike.py share one source of truth instead of two. No
+existing SuiteFraming row or field changed.
 """
 
 from __future__ import annotations
@@ -105,3 +115,20 @@ _TABLE: tuple[SuiteFraming, ...] = (
 SUITE_FRAMINGS: dict[str, SuiteFraming] = {s.suite_id: s for s in _TABLE}
 
 assert len(SUITE_FRAMINGS) == len(_TABLE), "duplicate suite_id in constants table"
+
+
+# --- IKEv2 notify payload type numbers ---
+# VERIFY BY HAND, same as the framing table above: each is sourced to a
+# draft/RFC but authored from protocol knowledge, not transcribed from the
+# source document.
+
+# draft-ietf-ipsecme-ikev2-downgrade-prevention-08: carries a hash of the
+# full IKE_SA_INIT transcript; used by Phase 2 to detect downgrade attacks.
+IKE_SA_INIT_FULL_TRANSCRIPT_AUTH = 16447
+
+# RFC 9370 §4: additional key exchange in a hybrid post-quantum proposal.
+ADDITIONAL_KEY_EXCHANGE = 16441
+
+# RFC 9867 §4: postquantum preshared key (PPK) support/use signaling.
+PPK_SUPPORT = 16445
+PPK_IDENTITY_KEY = 16446
