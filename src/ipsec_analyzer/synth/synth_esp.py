@@ -40,6 +40,25 @@ class SyntheticPacket:
     direction: str   # "forward" | "reverse"
     inner_len: int   # P, the pre-ESP plaintext length
     wire_len: int    # E, per esp_wire_len()
+    ciphertext_prefix: bytes = b""  # a few bytes at the ciphertext offset; see synth_ciphertext_prefix()
+
+
+def synth_ciphertext_prefix(inner_len: int, framing: SuiteFraming) -> bytes:
+    """Fabricates the bytes Phase 3's NULL-encryption elimination
+    (inference/esp_constraints/engine.py) tests against.
+
+    When `framing.explicit_iv == 0` (NULL-ENC — no real encryption
+    happens, so the "ciphertext" bytes really are the inner plaintext), this
+    returns a plausible IPv4 header opening: version/IHL nibble 0x45, then a
+    Total Length field equal to `inner_len` (this oracle's own definition of
+    "the whole inner datagram"). Otherwise it returns a fixed, deliberately
+    invalid prefix (version nibble 0xb) — standing in for genuine ESP
+    ciphertext, which is effectively random and essentially never
+    coincidentally decodes as a valid, length-consistent IP header.
+    """
+    if framing.explicit_iv == 0:
+        return bytes([0x45, 0x00]) + inner_len.to_bytes(2, "big")
+    return bytes([0xB0, 0x00, 0x00, 0x00])
 
 
 def synth_esp_flow(
@@ -95,6 +114,46 @@ def synth_esp_flow(
                 direction=direction,
                 inner_len=inner_len,
                 wire_len=esp_wire_len(inner_len, framing),
+                ciphertext_prefix=synth_ciphertext_prefix(inner_len, framing),
+            )
+        )
+    return packets
+
+
+def synth_tfc_flow(
+    framing: SuiteFraming,
+    count: int,
+    padded_inner_len: int = 1436,
+    dominant_fraction: float = 0.95,
+    varied_inner_range: tuple[int, int] = (40, 1400),
+) -> list[SyntheticPacket]:
+    """A flow with RFC 4303 traffic-flow-confidentiality padding applied:
+    almost every packet is padded to one fixed, near-MTU inner length,
+    destroying the residue structure Phase 3's GCD estimator depends on.
+
+    Used to prove the TFC gate refuses to guess rather than reporting a
+    plausible-looking wrong answer — the opposite fixture from
+    `synth_esp_flow`'s deliberate spread.
+    """
+    if count < 0:
+        raise ValueError("count must be >= 0")
+    dominant_count = round(count * dominant_fraction)
+    varied_low, varied_high = varied_inner_range
+    varied_span = varied_high - varied_low + 1
+    if varied_span < 1:
+        raise ValueError("varied_inner_range must be non-empty")
+    packets: list[SyntheticPacket] = []
+    for i in range(count):
+        if i < dominant_count:
+            inner_len = padded_inner_len
+        else:
+            inner_len = varied_low + (i % varied_span)
+        packets.append(
+            SyntheticPacket(
+                direction="forward",
+                inner_len=inner_len,
+                wire_len=esp_wire_len(inner_len, framing),
+                ciphertext_prefix=synth_ciphertext_prefix(inner_len, framing),
             )
         )
     return packets
