@@ -7,10 +7,10 @@ from ipsec_analyzer.core.constants import (
     PPK_SUPPORT,
 )
 from ipsec_analyzer.inference.notify_posture import (
-    DowngradeExposureSeverity,
+    DowngradeExposureReason,
     DowngradeProtectionState,
     assess_notify_posture,
-    classify_downgrade_exposure_severity,
+    classify_downgrade_exposure_reason,
     classify_downgrade_protection_state,
 )
 from ipsec_analyzer.synth.synth_ike import synth_downgrade_prevention_posture, synth_ike_sa_init
@@ -78,46 +78,50 @@ class TestFourStateLattice:
 
 class TestSeverityBranches:
     def test_hybrid_pq_present_is_high(self):
-        severity = classify_downgrade_exposure_severity(
+        reason = classify_downgrade_exposure_reason(
             request_notify_types=(ADDITIONAL_KEY_EXCHANGE,),
             response_notify_types=(),
             proposed_dh_groups=(14,),
         )
-        assert severity is DowngradeExposureSeverity.HIGH
+        assert reason is DowngradeExposureReason.HYBRID_PQ_EXPOSED
+        assert reason.severity == "HIGH"
 
     def test_mixed_weak_and_strong_groups_is_high(self):
-        severity = classify_downgrade_exposure_severity(
+        reason = classify_downgrade_exposure_reason(
             request_notify_types=(),
             response_notify_types=(),
             proposed_dh_groups=(2, 14),
         )
-        assert severity is DowngradeExposureSeverity.HIGH
+        assert reason is DowngradeExposureReason.MIXED_STRENGTH_GROUPS
+        assert reason.severity == "HIGH"
 
     def test_weak_only_is_medium(self):
-        severity = classify_downgrade_exposure_severity(
+        reason = classify_downgrade_exposure_reason(
             request_notify_types=(),
             response_notify_types=(),
             proposed_dh_groups=(1, 2, 5),
         )
-        assert severity is DowngradeExposureSeverity.MEDIUM
+        assert reason is DowngradeExposureReason.WEAK_GROUP_NEGOTIABLE
+        assert reason.severity == "MEDIUM"
 
     def test_no_weak_group_is_info(self):
-        severity = classify_downgrade_exposure_severity(
+        reason = classify_downgrade_exposure_reason(
             request_notify_types=(),
             response_notify_types=(),
             proposed_dh_groups=(14, 19, 31),
         )
-        assert severity is DowngradeExposureSeverity.INFO
+        assert reason is DowngradeExposureReason.NO_WEAK_GROUP
+        assert reason.severity == "INFO"
 
     def test_hybrid_pq_outranks_mixed_groups(self):
         # both conditions present — HIGH either way, but confirms the
         # priority order doesn't accidentally short-circuit incorrectly
-        severity = classify_downgrade_exposure_severity(
+        reason = classify_downgrade_exposure_reason(
             request_notify_types=(ADDITIONAL_KEY_EXCHANGE,),
             response_notify_types=(),
             proposed_dh_groups=(2, 14),
         )
-        assert severity is DowngradeExposureSeverity.HIGH
+        assert reason is DowngradeExposureReason.HYBRID_PQ_EXPOSED
 
 
 class TestAssessNotifyPosture:
@@ -141,7 +145,9 @@ class TestAssessNotifyPosture:
         claims = _assess_from_exchange(exchange)
         severity_claims = [c for c in claims if c.field == "ike_sa_init.downgrade_exposure_severity"]
         assert len(severity_claims) == 1
-        assert severity_claims[0].value == "HIGH"  # mixed weak+strong
+        # amendment after Phase 5's review: value is now {"severity", "reason"}
+        # so rules can distinguish HIGH-because-mixed from HIGH-because-hybrid-PQ
+        assert severity_claims[0].value == {"severity": "HIGH", "reason": "MIXED_STRENGTH_GROUPS"}
 
     def test_ppk_notify_detected(self):
         exchange = synth_ike_sa_init(request_notify_types=(PPK_SUPPORT, PPK_IDENTITY_KEY))
@@ -267,6 +273,26 @@ class TestPartialObservationIsACoverageGapNotAFinding:
         ppk_claim = next(c for c in claims if c.field == "ike_sa_init.ppk_in_use")
         assert ppk_claim.tier is Tier.NOT_OBSERVABLE
         assert ppk_claim.value is None
+
+    def test_both_halves_observed_and_empty_still_yields_a_real_none_result(self):
+        # Phase 5a review fix #1: `[]` (observed, no notifies) must never
+        # collapse into the same thing as `None` (not observed at all).
+        # This is the case that actually exercises the NONE-protection
+        # branch through assess_notify_posture end-to-end — the other
+        # tests here only exercise it via classify_downgrade_protection_state
+        # directly against synth_ike fixtures.
+        claims = assess_notify_posture(
+            request_notify_types=(),
+            response_notify_types=(),
+            proposed_dh_groups=(14,),
+            request_frame=3,
+            response_frame=4,
+        )
+        posture = next(c for c in claims if c.field == "ike_sa_init.downgrade_protection_state")
+        assert posture.tier is Tier.OBSERVED
+        assert posture.value == DowngradeProtectionState.NONE.value
+        severity = next(c for c in claims if c.field == "ike_sa_init.downgrade_exposure_severity")
+        assert severity.value == {"severity": "INFO", "reason": "NO_WEAK_GROUP"}
 
     def test_fully_observed_negative_is_still_a_confident_false(self):
         # Regression guard: the fix must not weaken the fully-observed case.

@@ -1,0 +1,220 @@
+# rules.yaml — the 15 MVP policy rules (MVP_BUILD_PROMPT.md Phase 5).
+#
+# Rules are data, not code: conditions are structured (op/field/value(s)),
+# never a string handed to eval(). See rules/schema.py for the condition
+# operators (eq, in, intersects) and the Rule dataclass they parse into.
+#
+# `target` is a dotted field path looked up in the ClaimLedger via
+# `ledger.get(target)`. `min_tier` names a Tier enum member — if the
+# ledger has no claim for `target`, or the claim's tier is below
+# `min_tier`, this rule is a coverage gap for this capture, not a finding
+# (MVP_BUILD_PROMPT.md Phase 5's rule schema). `references` and the
+# transform-ID/notify-type values conditions check against are all
+# VERIFY BY HAND, same standard as core/constants.py.
+#
+# `{value}` in `title`/`recommendation` is replaced at finding-generation
+# time with the triggering claim's value (or field-extracted sub-value),
+# optionally relabeled via `value_labels` — used by rule
+# `partial_downgrade_protection` to literally name the deficient endpoint.
+
+- id: weak_dh_group_negotiated
+  title: "Weak Diffie-Hellman group negotiated"
+  target: ike_sa.dh_group
+  min_tier: OBSERVED
+  condition:
+    op: in
+    values: [1, 2, 5, 22, 23, 24]
+  severity: HIGH
+  category: key_exchange
+  references: ["RFC 3526", "RFC 5114"]
+  recommendation: "Negotiate DH group 14 (2048-bit MODP) or higher, or an ECP group (19-21), instead of the weak group in use."
+  gap_kind: not_observed_in_capture
+
+- id: ikev1_in_use
+  title: "IKEv1 in use"
+  target: ike.version
+  min_tier: OBSERVED
+  condition:
+    op: eq
+    value: 1
+  severity: MEDIUM
+  category: protocol_version
+  references: ["RFC 9395"]
+  recommendation: "Migrate to IKEv2; IKEv1 is deprecated (RFC 9395) and SA-parameter extraction was not attempted for it."
+  gap_kind: not_observed_in_capture
+
+- id: ikev1_aggressive_mode
+  title: "IKEv1 Aggressive Mode in use"
+  target: ike.aggressive_mode
+  min_tier: OBSERVED
+  condition:
+    op: eq
+    value: true
+  severity: HIGH
+  category: protocol_version
+  references: ["RFC 2408 §3.1", "RFC 9395"]
+  recommendation: "Disable Aggressive Mode; it exposes the peer identity (and, with PSK authentication, a hash usable for offline dictionary attacks) in the clear. Use Main Mode or migrate to IKEv2."
+  gap_kind: not_observed_in_capture
+
+- id: downgrade_exposure_mixed_strength
+  title: "Downgrade exposure: proposal mixes weak and strong DH groups"
+  target: ike_sa_init.downgrade_exposure_severity
+  min_tier: OBSERVED
+  condition:
+    op: eq
+    field: reason
+    value: MIXED_STRENGTH_GROUPS
+  severity: HIGH
+  category: downgrade_protection
+  references: ["draft-ietf-ipsecme-ikev2-downgrade-prevention-08"]
+  recommendation: "Remove weak DH groups from the proposal entirely, or ensure both peers send the full-transcript-authentication notify (16447) so a downgrade attempt is detectable."
+  gap_kind: not_observed_in_capture
+
+- id: downgrade_exposure_hybrid_pq
+  title: "Downgrade exposure: hybrid post-quantum deployment without full protection"
+  target: ike_sa_init.downgrade_exposure_severity
+  min_tier: OBSERVED
+  condition:
+    op: eq
+    field: reason
+    value: HYBRID_PQ_EXPOSED
+  severity: HIGH
+  category: downgrade_protection
+  references: ["RFC 9370", "draft-ietf-ipsecme-ikev2-downgrade-prevention-08"]
+  recommendation: "A hybrid post-quantum key exchange without full downgrade protection can be silently stripped back to classical-only KEX by an on-path attacker; ensure both peers send notify 16447."
+  gap_kind: not_observed_in_capture
+
+- id: downgrade_exposure_weak_group_negotiable
+  title: "Downgrade exposure: a weak DH group remains negotiable"
+  target: ike_sa_init.downgrade_exposure_severity
+  min_tier: OBSERVED
+  condition:
+    op: eq
+    field: reason
+    value: WEAK_GROUP_NEGOTIABLE
+  severity: MEDIUM
+  category: downgrade_protection
+  references: ["draft-ietf-ipsecme-ikev2-downgrade-prevention-08"]
+  recommendation: "Remove the weak DH group from the proposal, even though it wasn't the one ultimately selected — it remains available to a downgrade attempt."
+  gap_kind: not_observed_in_capture
+
+- id: partial_downgrade_protection
+  title: "Partial downgrade protection: {value} does not support it"
+  target: ike_sa_init.downgrade_protection_state
+  min_tier: OBSERVED
+  condition:
+    op: in
+    values: [PARTIAL_RESPONDER_LACKS, PARTIAL_INITIATOR_LACKS]
+  value_labels:
+    PARTIAL_RESPONDER_LACKS: "the responder"
+    PARTIAL_INITIATOR_LACKS: "the initiator"
+  severity: MEDIUM
+  category: downgrade_protection
+  references: ["draft-ietf-ipsecme-ikev2-downgrade-prevention-08"]
+  recommendation: "{value} does not send the full-transcript-authentication notify (16447); protection requires both peers to send it. Upgrade the deficient endpoint's IKE implementation."
+  gap_kind: not_observed_in_capture
+
+- id: sixty_four_bit_block_cipher_in_esp
+  title: "64-bit block cipher family in use for ESP"
+  target: esp.granularity
+  min_tier: INFERRED_SIDE_CHANNEL
+  condition:
+    op: eq
+    value: 8
+  severity: HIGH
+  category: esp_cipher
+  references: ["RFC 4303", "RFC 2451"]
+  recommendation: "64-bit block ciphers (3DES/DES/Blowfish/CAST) are vulnerable to birthday-bound attacks (e.g. Sweet32) well within realistic traffic volumes. Migrate to an AES-based AEAD suite."
+  gap_kind: not_observed_in_capture
+
+- id: truncated_96_bit_icv
+  title: "Truncated 96-bit integrity check value"
+  target: esp.icv_len
+  min_tier: INFERRED_SIDE_CHANNEL
+  condition:
+    op: intersects
+    values: [12]
+  severity: MEDIUM
+  category: esp_integrity
+  references: ["RFC 4303", "RFC 2404"]
+  recommendation: "A 96-bit truncated MAC remains standards-permitted but offers a smaller security margin than 128-bit+ alternatives (e.g. HMAC-SHA-256-128, AES-GCM's 128-bit tag); prefer those where supported."
+  gap_kind: not_observed_in_capture
+
+- id: null_encryption
+  title: "NULL encryption in use for ESP"
+  target: esp.null_encryption_confirmed
+  min_tier: INFERRED_SIDE_CHANNEL
+  condition:
+    op: eq
+    value: true
+  severity: HIGH
+  category: esp_cipher
+  references: ["RFC 2410"]
+  recommendation: "This traffic has no confidentiality protection at all. Confirm this is intentional (e.g. a debugging/testing deployment) and never route production traffic through it unencrypted."
+  gap_kind: not_observed_in_capture
+
+- id: ah_in_use
+  title: "AH in use (deprecated)"
+  target: ah.detected
+  min_tier: OBSERVED
+  condition:
+    op: eq
+    value: true
+  severity: LOW
+  category: protocol_version
+  references: ["RFC 4301", "RFC 4302"]
+  recommendation: "AH provides integrity but no confidentiality and is largely superseded by ESP (which can provide both). Migrate to ESP unless AH's specific properties (e.g. protecting outer IP header fields) are a hard requirement."
+  gap_kind: not_observed_in_capture
+
+- id: weak_ike_sa_cipher
+  title: "Weak IKE SA cipher (DES / 3DES)"
+  target: ike_sa.encryption
+  min_tier: OBSERVED
+  condition:
+    op: in
+    field: transform_id
+    values: [1, 2, 3, 11]
+  severity: HIGH
+  category: ike_cipher
+  references: ["RFC 2409", "RFC 8247"]
+  recommendation: "DES and 3DES are cryptographically weak by modern standards (RFC 8247 recommends against them). Migrate the IKE SA to an AES-based cipher."
+  gap_kind: not_observed_in_capture
+
+- id: weak_ike_sa_integrity
+  title: "Weak IKE SA integrity (MD5 / SHA-1)"
+  target: ike_sa.integrity
+  min_tier: OBSERVED
+  condition:
+    op: in
+    values: [1, 2, 4, 6, 7]
+  severity: MEDIUM
+  category: ike_integrity
+  references: ["RFC 2409", "RFC 8247"]
+  recommendation: "MD5- and SHA-1-based integrity transforms are deprecated (RFC 8247). Migrate the IKE SA to a SHA-2-based integrity transform (e.g. HMAC-SHA2-256-128)."
+  gap_kind: not_observed_in_capture
+
+- id: pfs_not_observable
+  title: "Perfect Forward Secrecy: not observable from this capture"
+  target: child_sa.pfs
+  min_tier: OBSERVED
+  condition:
+    op: eq
+    value: false
+  severity: INFO
+  category: coverage
+  references: ["RFC 7296 §1.3"]
+  recommendation: "PFS is signaled by a KE payload in CREATE_CHILD_SA, which this MVP does not parse (out of scope). Verify PFS configuration directly against both endpoints' policy."
+  gap_kind: not_implemented
+
+- id: anti_replay_not_observable
+  title: "Anti-replay window enforcement: never observable from a passive capture"
+  target: esp.anti_replay_enabled
+  min_tier: OBSERVED
+  condition:
+    op: eq
+    value: false
+  severity: INFO
+  category: coverage
+  references: ["RFC 4303 §3.4.3"]
+  recommendation: "Anti-replay window enforcement is a receiver-side policy decision never signaled on the wire — the sequence number is present in every ESP packet regardless of whether the receiver checks it. Verify directly against both endpoints' configuration."
+  gap_kind: structurally_unobservable

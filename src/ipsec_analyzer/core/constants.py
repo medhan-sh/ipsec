@@ -162,3 +162,26 @@ STRONG_DH_GROUPS: frozenset[int] = frozenset({
     31,  # Curve25519, RFC 8031
     32,  # Curve448, RFC 8031
 })
+
+
+# --- IKEv2 SA transform ID numbers (encryption, integrity) ---
+# Amendment (Phase 5, same basis as the notify-type and DH-group
+# amendments above): Phase 5's policy rules 12 and 13 ("Weak IKE SA
+# cipher", "Weak IKE SA integrity") need to classify the transform IDs
+# ike_parse.py already extracts as OBSERVED claims. Cited to IANA's
+# "Transform Type 1 (Encryption)" and "Transform Type 3 (Integrity)"
+# registries. VERIFY BY HAND, same as the rest of this file.
+WEAK_IKE_ENCRYPTION_IDS: frozenset[int] = frozenset({
+    1,   # ENCR_DES_IV64
+    2,   # ENCR_DES
+    3,   # ENCR_3DES
+    11,  # ENCR_DES_IV32
+})
+
+WEAK_IKE_INTEGRITY_IDS: frozenset[int] = frozenset({
+    1,  # AUTH_HMAC_MD5_96
+    2,  # AUTH_HMAC_SHA1_96
+    4,  # AUTH_KPDK_MD5
+    6,  # AUTH_HMAC_MD5_128
+    7,  # AUTH_HMAC_SHA1_160
+})

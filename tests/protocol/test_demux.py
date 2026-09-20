@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from ipsec_analyzer.protocol.demux import AH_PROTO, ESP_PROTO, demux
+from ipsec_analyzer.core.claims import Tier
+from ipsec_analyzer.protocol.demux import AH_PROTO, ESP_PROTO, demux, extract_ah_detected_claim
 from ipsec_analyzer.protocol.ingest import load_capture
 from ipsec_analyzer.protocol.records import PacketRecord
 
@@ -163,3 +164,22 @@ class TestAgainstRealCaptures:
         for tunnel in tunnels:
             assert tunnel.spi_b is not None, "every tunnel here has both directions observed"
             assert tunnel.records_a and tunnel.records_b
+
+
+class TestAhDetectedClaim:
+    """Phase 5's rule 11 ("AH in use (deprecated)") needs a Claim, not
+    just the raw `ah_frames` tuple — assessment/ reads the ClaimLedger,
+    never protocol/ types directly.
+    """
+
+    def test_no_claim_when_no_ah_seen(self):
+        result = demux([_record(6, sport=443, dport=1234)])
+        assert extract_ah_detected_claim(result) is None
+
+    def test_claim_when_ah_seen(self):
+        result = demux([_record(AH_PROTO, payload=b"\x00" * 20, frame_no=7)])
+        claim = extract_ah_detected_claim(result)
+        assert claim is not None
+        assert claim.tier is Tier.OBSERVED
+        assert claim.value is True
+        assert claim.evidence == (7,)

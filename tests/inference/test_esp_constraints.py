@@ -246,6 +246,18 @@ class TestNullEncryptionElimination:
         result = analyze_esp_flow(_observations_from_flow(flow))
         assert result.candidate_set is not None
         assert suite_id in result.candidate_set.surviving
+        # Added for Phase 5's rule 10 ("NULL encryption"): a positive
+        # confirmation must be its own Claim, not just "wasn't eliminated"
+        # (an absence Phase 5's rule engine has nothing to query).
+        assert result.null_encryption_claim is not None
+        assert result.null_encryption_claim.value is True
+        assert result.null_encryption_claim.tier is Tier.INFERRED_SIDE_CHANNEL
+
+    def test_null_encryption_claim_is_none_when_null_is_eliminated(self):
+        framing = SUITE_FRAMINGS["AES-128-GCM-16"]
+        flow = synth_esp_flow(framing, count=120, forward_run=8, reverse_run=1)
+        result = analyze_esp_flow(_observations_from_flow(flow))
+        assert result.null_encryption_claim is None
 
     def test_no_payload_evidence_still_eliminates_null_by_default(self):
         # Without any ciphertext_prefix data at all (a capture that kept
@@ -256,6 +268,29 @@ class TestNullEncryptionElimination:
         result = analyze_esp_flow(_observations_without_prefix(flow))
         assert result.candidate_set is not None
         assert not (self._null_suite_ids() & result.candidate_set.surviving)
+
+    def test_insufficient_diversity_but_readable_payload_eliminates_null_with_reason(self):
+        # Phase 5a review fix #6: confirms elimination-channel independence
+        # holds specifically for "granularity abstains, but there IS
+        # payload evidence" (not just "granularity abstains and there's no
+        # payload evidence at all", already covered above) — every wire
+        # length is identical (insufficient size diversity: GCD abstains),
+        # but each packet carries a real, non-NULL ciphertext prefix. The
+        # NULL-encryption channel must still run independently and record
+        # a human-readable elimination reason, exactly as it does when
+        # granularity succeeds.
+        observations = [
+            EspPacketObservation(direction="forward", wire_len=1400, ciphertext_prefix=b"\xb0\x00\x00\x00")
+            for _ in range(20)
+        ]
+        result = analyze_esp_flow(observations)
+        assert result.granularity_claim.tier is Tier.NOT_OBSERVABLE
+        assert result.candidate_set is not None
+        null_ids = self._null_suite_ids()
+        assert not (null_ids & result.candidate_set.surviving), "NULL-ENC should still be eliminated"
+        null_reasons = [reason for sid, reason in result.candidate_set.eliminated_by if sid in null_ids]
+        assert null_reasons
+        assert all(len(reason) > 15 for reason in null_reasons)
 
     def test_null_elimination_reason_is_human_readable(self):
         framing = SUITE_FRAMINGS["AES-128-GCM-16"]

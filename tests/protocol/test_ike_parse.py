@@ -5,11 +5,13 @@ import pytest
 from ipsec_analyzer.core.claims import Tier
 from ipsec_analyzer.protocol.ike_parse import (
     EXCHANGE_TYPE_IKE_SA_INIT,
+    IKEV1_EXCHANGE_TYPE_AGGRESSIVE,
     IkeMessage,
     IkeTransforms,
     ParsedIke,
     TsharkError,
     extract_ike_sa_init_claims,
+    extract_ikev1_aggressive_mode_claim,
     extract_ikev1_detected_claim,
     get_tshark_version,
     notify_posture_inputs,
@@ -282,3 +284,43 @@ class TestTsharkVersion:
         # the running binary is actually that pin, not silently drifted.
         version = get_tshark_version()
         assert version.startswith("4.4.18")
+
+
+class TestIkev1AggressiveModeDetection:
+    """Phase 5 rule 3 ('IKEv1 Aggressive Mode'). No available real capture
+    uses Aggressive Mode — confirmed by hand that weberblog_ikev1.pcap
+    uses Main Mode (isakmp.exchangetype == 2) — so the positive case is
+    verified against a constructed fixture, same honest-gap treatment as
+    fragmentation. The negative case (Main Mode correctly not flagged) is
+    checked against the real capture.
+    """
+
+    def test_real_ikev1_capture_uses_main_mode_not_aggressive(self):
+        parsed = parse_ike_messages(str(CAPTURES / "weberblog_ikev1.pcap"))
+        assert extract_ikev1_aggressive_mode_claim(parsed) is None
+
+    def test_aggressive_mode_detected_from_constructed_fixture(self):
+        parsed = ParsedIke(
+            messages=[
+                IkeMessage(
+                    frame_no=1, exchange_type=IKEV1_EXCHANGE_TYPE_AGGRESSIVE, is_request=True, major_version=1
+                ),
+            ],
+            tshark_exit_clean=True,
+        )
+        claim = extract_ikev1_aggressive_mode_claim(parsed)
+        assert claim is not None
+        assert claim.tier is Tier.OBSERVED
+        assert claim.value is True
+        assert claim.evidence == (1,)
+
+    def test_ikev2_exchange_type_never_flagged_even_if_numerically_similar(self):
+        # IKEv2 has no Aggressive Mode; a v2 message must not be flagged
+        # even though exchange-type numbers are reused across versions.
+        parsed = ParsedIke(
+            messages=[
+                IkeMessage(frame_no=1, exchange_type=EXCHANGE_TYPE_IKE_SA_INIT, is_request=True, major_version=2),
+            ],
+            tshark_exit_clean=True,
+        )
+        assert extract_ikev1_aggressive_mode_claim(parsed) is None

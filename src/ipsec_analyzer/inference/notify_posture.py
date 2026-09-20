@@ -62,10 +62,30 @@ class DowngradeProtectionState(str, Enum):
     NONE = "NONE"
 
 
-class DowngradeExposureSeverity(str, Enum):
-    HIGH = "HIGH"
-    MEDIUM = "MEDIUM"
-    INFO = "INFO"
+class DowngradeExposureReason(str, Enum):
+    """Amendment after Phase 5's review: the original design only tracked
+    the severity string ("HIGH"/"MEDIUM"/"INFO"), which collapsed two
+    distinct HIGH causes (hybrid-PQ exposure, a mixed-strength proposal)
+    into the same claim value — Phase 5's rules 4 and 5 need to be able to
+    tell those apart to fire as separate findings, and the ledger can only
+    see what the claim's value actually carries. Replaces
+    `DowngradeExposureSeverity`: each reason implies exactly one severity
+    (via `.severity`), so tracking the reason subsumes the old field
+    rather than needing both kept in sync.
+    """
+    HYBRID_PQ_EXPOSED = "HYBRID_PQ_EXPOSED"
+    MIXED_STRENGTH_GROUPS = "MIXED_STRENGTH_GROUPS"
+    WEAK_GROUP_NEGOTIABLE = "WEAK_GROUP_NEGOTIABLE"
+    NO_WEAK_GROUP = "NO_WEAK_GROUP"
+
+    @property
+    def severity(self) -> str:
+        return {
+            DowngradeExposureReason.HYBRID_PQ_EXPOSED: "HIGH",
+            DowngradeExposureReason.MIXED_STRENGTH_GROUPS: "HIGH",
+            DowngradeExposureReason.WEAK_GROUP_NEGOTIABLE: "MEDIUM",
+            DowngradeExposureReason.NO_WEAK_GROUP: "INFO",
+        }[self]
 
 
 def classify_downgrade_protection_state(
@@ -98,12 +118,12 @@ def classify_downgrade_protection_state(
     return DowngradeProtectionState.NONE
 
 
-def classify_downgrade_exposure_severity(
+def classify_downgrade_exposure_reason(
     *,
     request_notify_types: Iterable[int],
     response_notify_types: Iterable[int],
     proposed_dh_groups: Iterable[int],
-) -> DowngradeExposureSeverity:
+) -> DowngradeExposureReason:
     """Evaluated only when the protection state isn't PROTECTED (callers'
     responsibility to gate that — see assess_notify_posture). Checked in
     the priority order MVP_BUILD_PROMPT.md Phase 2 specifies: hybrid PQ
@@ -122,15 +142,15 @@ def classify_downgrade_exposure_severity(
     """
     all_notify_types = set(request_notify_types) | set(response_notify_types)
     if ADDITIONAL_KEY_EXCHANGE in all_notify_types:
-        return DowngradeExposureSeverity.HIGH
+        return DowngradeExposureReason.HYBRID_PQ_EXPOSED
     groups = set(proposed_dh_groups)
     has_weak = bool(groups & WEAK_DH_GROUPS)
     has_strong = bool(groups & STRONG_DH_GROUPS)
     if has_weak and has_strong:
-        return DowngradeExposureSeverity.HIGH
+        return DowngradeExposureReason.MIXED_STRENGTH_GROUPS
     if has_weak:
-        return DowngradeExposureSeverity.MEDIUM
-    return DowngradeExposureSeverity.INFO
+        return DowngradeExposureReason.WEAK_GROUP_NEGOTIABLE
+    return DowngradeExposureReason.NO_WEAK_GROUP
 
 
 def assess_notify_posture(
@@ -245,7 +265,7 @@ def assess_notify_posture(
     )
 
     if fully_observed and state is not DowngradeProtectionState.PROTECTED:
-        severity = classify_downgrade_exposure_severity(
+        reason = classify_downgrade_exposure_reason(
             request_notify_types=request_types,
             response_notify_types=response_types,
             proposed_dh_groups=proposed_dh_groups,
@@ -253,7 +273,7 @@ def assess_notify_posture(
         claims.append(
             Claim(
                 field="ike_sa_init.downgrade_exposure_severity",
-                value=severity.value,
+                value={"severity": reason.severity, "reason": reason.value},
                 tier=Tier.OBSERVED,
                 confidence=1.0,
                 method="notify_posture.downgrade_exposure_severity",

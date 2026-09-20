@@ -66,6 +66,10 @@ TRANSFORM_TYPE_DH = "4"
 # IANA "IKEv2 Exchange Types" registry.
 EXCHANGE_TYPE_IKE_SA_INIT = 34
 
+# IANA "ISAKMP Exchange Types" registry (RFC 2408 §3.1, IKEv1's phase-1
+# exchanges): 2 = Identity Protection (Main Mode), 4 = Aggressive.
+IKEV1_EXCHANGE_TYPE_AGGRESSIVE = 4
+
 _TSHARK_TIMEOUT_SECONDS = 60
 
 
@@ -485,5 +489,35 @@ def extract_ikev1_detected_claim(parsed: ParsedIke) -> Claim | None:
             "IKEv1 detected; this tool's SA-parameter extraction targets IKEv2's "
             "exchange types and payload structure and was not attempted for this "
             "capture's IKE messages — out of scope for this MVP, not a parse failure",
+        ),
+    )
+
+
+def extract_ikev1_aggressive_mode_claim(parsed: ParsedIke) -> Claim | None:
+    """OBSERVED claim that IKEv1 Aggressive Mode is in use, for Phase 5's
+    rule 3. Aggressive Mode exchanges the peer identity and (in PSK
+    deployments) an authentication hash in the clear during the first two
+    messages, which Main Mode protects — a real, distinct weakness from
+    "IKEv1 is deprecated" generally, so it gets its own claim rather than
+    being folded into `extract_ikev1_detected_claim`.
+    """
+    aggressive_messages = [
+        m
+        for m in parsed.messages
+        if m.major_version == 1 and m.exchange_type == IKEV1_EXCHANGE_TYPE_AGGRESSIVE
+    ]
+    if not aggressive_messages:
+        return None
+    return Claim(
+        field="ike.aggressive_mode",
+        value=True,
+        tier=Tier.OBSERVED,
+        confidence=1.0,
+        method="ike_parse.extract_ikev1_aggressive_mode_claim",
+        evidence=tuple(m.frame_no for m in aggressive_messages),
+        caveats=(
+            "IKEv1 Aggressive Mode exposes the peer identity (and, with PSK "
+            "authentication, a hash usable for offline dictionary attacks) in the "
+            "first two unencrypted messages, unlike Main Mode",
         ),
     )
