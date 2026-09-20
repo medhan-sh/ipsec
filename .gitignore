@@ -6,4 +6,5 @@ __pycache__/
 venv/
 captures/*
 !captures/.gitkeep
+!captures/FETCH.md
 reports

@@ -133,20 +133,30 @@ class TestEndToEndEngine:
             f"{suite_id} was eliminated but should have survived"
         )
 
-    def test_tfc_flow_returns_not_observable(self):
+    def test_tfc_flow_returns_not_observable_but_null_channel_still_runs(self):
+        # Amendment after Phase 4's review: candidate_set is never None —
+        # the NULL-encryption channel is independent of TFC/granularity
+        # (see engine.py's module docstring) and still runs here. This is
+        # the exact scenario every real capture in Phase 4 hit.
         framing = SUITE_FRAMINGS["AES-128-GCM-16"]
         flow = synth_tfc_flow(framing, count=100)
         result = analyze_esp_flow(_observations_from_flow(flow))
         assert result.granularity_claim.tier is Tier.NOT_OBSERVABLE
         assert result.granularity_claim.value is None
         assert any("TFC" in c for c in result.granularity_claim.caveats)
-        assert result.candidate_set is None
+        assert result.candidate_set is not None
+        null_ids = frozenset(sid for sid in SUITE_FRAMINGS if SUITE_FRAMINGS[sid].explicit_iv == 0)
+        assert not (null_ids & result.candidate_set.surviving), "NULL-ENC should still be eliminated"
+        # nothing else eliminated — family/ICV channels correctly abstained
+        assert result.candidate_set.surviving == frozenset(SUITE_FRAMINGS) - null_ids
 
-    def test_all_identical_lengths_returns_not_observable(self):
+    def test_all_identical_lengths_returns_not_observable_but_null_channel_still_runs(self):
         observations = [EspPacketObservation(direction="forward", wire_len=68) for _ in range(20)]
         result = analyze_esp_flow(observations)
         assert result.granularity_claim.tier is Tier.NOT_OBSERVABLE
-        assert result.candidate_set is None
+        assert result.candidate_set is not None
+        null_ids = frozenset(sid for sid in SUITE_FRAMINGS if SUITE_FRAMINGS[sid].explicit_iv == 0)
+        assert not (null_ids & result.candidate_set.surviving), "no payload evidence should still eliminate NULL-ENC by default"
 
     def test_not_observable_claim_has_no_value(self):
         observations = [EspPacketObservation(direction="forward", wire_len=68) for _ in range(20)]

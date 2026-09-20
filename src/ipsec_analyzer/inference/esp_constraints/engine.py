@@ -1,30 +1,50 @@
 """3 — ESP constraint engine (F6b), orchestrator (MVP_BUILD_PROMPT.md
 Phase 3).
 
-Ties together the TFC gate (3b), GCD granularity estimator (3a), and ACK
-anchor ICV solver (3c) into the candidate-set narrowing described in 3d,
-plus a NULL-encryption check added on review (see below).
+Ties together the TFC gate (3b), GCD granularity estimator (3a), ACK
+anchor ICV solver (3c), and a NULL-encryption check (added on review after
+Phase 3) into the candidate-set narrowing described in 3d.
+
+**Composition, not gating (amendment after Phase 4's review).** Each
+channel fires or abstains independently; the surviving candidate set is
+whatever's left after applying every channel that had something to say.
+An earlier version of this function returned early — with `candidate_set
+= None` — the moment the TFC gate or GCD estimator abstained, which meant
+the NULL-encryption check (fully independent of granularity: it only
+needs `SUITE_FRAMINGS[suite_id].icv_len`, a fixed per-candidate constant,
+and the observed payload bytes) never ran at all on a capture where
+granularity couldn't be determined. Every real capture obtained for Phase
+4 hit exactly that path, so the fix wasn't defensive — it was live: this
+change is what makes "the payload doesn't decode as NULL-plaintext" an
+actual reported elimination on real data, instead of a channel that only
+ever fires on synthetic fixtures with a cooperative GCD result.
+
+The one channel that has a genuine (not just historical) dependency on
+another is the ICV/anchor solve: `solve_icv_candidates` needs the
+granularity to compute `ciphertext_len`, so it cannot run when granularity
+is unknown. That's real math, not control-flow laziness — left as a
+dependency, not "fixed" into false independence.
 
 Everything this emits is Tier.INFERRED_SIDE_CHANNEL — a side-channel
 derivation from packet sizes, never read from a protocol field — except
-the abstention case, which is NOT_OBSERVABLE per invariant 6.
+an abstaining channel's own claim, which is NOT_OBSERVABLE per invariant
+6. `candidate_set` is now always returned (never `None`): even when every
+sizing channel abstains, the NULL-encryption channel may still have
+narrowed it, and an unnarrowed `CandidateSet` (universe == surviving) is
+itself a meaningful, honest statement — "we learned nothing" — rather
+than an absent one.
 
 Confidence is 1.0 for the granularity claim: the GCD estimator is
-deterministic (invariant 6 — a failing deterministic estimator abstains
-rather than guessing), so when it succeeds its result is exactly right
-given the observed data. The ICV claim is also 1.0 at the same tier — the
-*arithmetic* is exact — but per review it carries a caveat the granularity
-claim doesn't need: the arithmetic is only exact *conditional on* the ACK
-anchor's packet identification being correct, and that identification
-(modal smallest reverse-direction length during a burst) is a heuristic
-that real traffic can mislead (small data packets, a chatty reverse
-channel). Flattening that distinction away by only tracking it in prose
-was flagged on review as asserting more certainty than the claim actually
-has; the caveat now names the assumption explicitly rather than silently
-carrying it. Any remaining ambiguity that isn't a matter of trusting a
-heuristic (e.g. two plausible ICV hypotheses, or several suites sharing
-one framing) lives structurally in the CandidateSet — in `eliminated_by`
-and `indistinguishable` — not as a further discount on confidence.
+deterministic, so when it succeeds its result is exactly right given the
+observed data. The ICV claim is also 1.0 at the same tier — the
+arithmetic is exact — but carries a caveat the granularity claim doesn't
+need: the arithmetic is only exact *conditional on* the ACK anchor's
+packet identification being correct, and that identification is a
+heuristic real traffic can mislead. Any remaining ambiguity that isn't a
+matter of trusting a heuristic (e.g. two plausible ICV hypotheses, or
+several suites sharing one framing) lives structurally in the
+CandidateSet — in `eliminated_by` and `indistinguishable` — not as a
+further discount on confidence.
 
 Deliberately does not build verdict lifting (Phase 5), fingerprint
 ranking, ESN inference, or any anchor other than the TCP pure-ACK one.
@@ -61,12 +81,13 @@ class EspPacketObservation:
     synthetic data now also carries for testing — a few bytes sampled at
     the ciphertext offset (right after the explicit IV). That last field
     defaults to empty: most of this phase's own tests don't need it, and
-    Phase 4's real adapter may not always have it either (e.g. if the IV
-    itself pushes the sample past what was captured).
+    a real adapter may not always have it either (e.g. if the IV itself
+    pushes the sample past what was captured).
 
     Defined here rather than imported from synth's SyntheticPacket —
     `inference/` may not depend on `synth/` (a test oracle) — and real
-    capture data will unpack into this same shape in Phase 4.
+    capture data unpacks into this same shape (see
+    `inference/pipeline.py`).
     """
     direction: str
     wire_len: int
@@ -77,7 +98,7 @@ class EspPacketObservation:
 class EspConstraintResult:
     granularity_claim: Claim
     icv_claim: Claim | None  # None iff no anchor was found/usable
-    candidate_set: CandidateSet | None  # None iff granularity_claim is NOT_OBSERVABLE
+    candidate_set: CandidateSet  # always returned — see module docstring
 
 
 def _family_for_granularity(granularity: int) -> str:
@@ -115,6 +136,11 @@ def _looks_like_null_encrypted_ip_header(prefix: bytes, candidate_ciphertext_len
     unlikely, which is what lets this be treated as a hard elimination
     rather than a probabilistic guess (per review).
 
+    Independent of granularity/TFC entirely — TFC padding changes how
+    much padding is added, not the byte content of the ciphertext offset
+    itself, so this channel runs regardless of what the sizing channels
+    concluded (see analyze_esp_flow).
+
     IPv6 is recognized by version nibble but not cross-checked against
     length here (no cheap length field at this offset) — a v6 nibble alone
     is treated as inconclusive, not confirming.
@@ -132,16 +158,15 @@ def _looks_like_null_encrypted_ip_header(prefix: bytes, candidate_ciphertext_len
     return low <= overhead <= high
 
 
-def analyze_esp_flow(
-    observations: Sequence[EspPacketObservation],
-    evidence: tuple[int, ...] = (),
-) -> EspConstraintResult:
-    wire_lengths = [o.wire_len for o in observations]
-    directions = [o.direction for o in observations]
-
+def _granularity_channel(wire_lengths: Sequence[int], evidence: tuple[int, ...]) -> tuple[Claim, int | None]:
+    """3a+3b composed: the TFC gate must run before the GCD result is
+    trusted. Returns the granularity Claim and the raw granularity value
+    (None if either channel abstained), so callers can tell "abstained"
+    from "succeeded" without re-deriving it from the Claim's tier.
+    """
     if suspect_tfc_by_length_distribution(wire_lengths):
-        return EspConstraintResult(
-            granularity_claim=Claim(
+        return (
+            Claim(
                 field="esp.granularity",
                 value=None,
                 tier=Tier.NOT_OBSERVABLE,
@@ -150,14 +175,13 @@ def analyze_esp_flow(
                 evidence=evidence,
                 caveats=("TFC padding suspected: one length dominates and sits near the MTU",),
             ),
-            icv_claim=None,
-            candidate_set=None,
+            None,
         )
 
     granularity = estimate_granularity(wire_lengths)
     if granularity is None:
-        return EspConstraintResult(
-            granularity_claim=Claim(
+        return (
+            Claim(
                 field="esp.granularity",
                 value=None,
                 tier=Tier.NOT_OBSERVABLE,
@@ -171,115 +195,148 @@ def analyze_esp_flow(
                     "granularity",
                 ),
             ),
-            icv_claim=None,
-            candidate_set=None,
+            None,
         )
 
-    family = _family_for_granularity(granularity)
-    granularity_claim = Claim(
-        field="esp.granularity",
-        value=granularity,
+    return (
+        Claim(
+            field="esp.granularity",
+            value=granularity,
+            tier=Tier.INFERRED_SIDE_CHANNEL,
+            confidence=1.0,
+            method="esp_constraints.gcd_estimator",
+            evidence=evidence,
+        ),
+        granularity,
+    )
+
+
+def _icv_channel(
+    directions: Sequence[str],
+    wire_lengths: Sequence[int],
+    granularity: int | None,
+    evidence: tuple[int, ...],
+) -> tuple[Claim | None, frozenset[int] | None]:
+    """3c: only runs when granularity is known — solve_icv_candidates
+    needs it to compute ciphertext_len. Returns (claim, plausible_icv);
+    both None if the channel couldn't run or found no anchor.
+    """
+    if granularity is None:
+        return None, None
+    anchor_len = find_sustained_reverse_anchor(directions, wire_lengths)
+    if anchor_len is None:
+        return None, None
+    plausible_icv = solve_icv_candidates(anchor_len, granularity)
+    if not plausible_icv:
+        return None, None
+    claim = Claim(
+        field="esp.icv_len",
+        value=tuple(sorted(plausible_icv)),
         tier=Tier.INFERRED_SIDE_CHANNEL,
         confidence=1.0,
-        method="esp_constraints.gcd_estimator",
+        method="esp_constraints.anchor_solver",
         evidence=evidence,
+        caveats=(
+            f"ICV derived from a presumed TCP pure-ACK anchor at length {anchor_len}; "
+            f"anchor identification (modal smallest reverse-direction length during a "
+            f"sustained unidirectional burst) is heuristic, not a protocol-level fact. "
+            f"The arithmetic from an identified anchor is exact, but only conditional "
+            f"on that identification being correct — a flow with small data packets or "
+            f"a chatty reverse channel could mislead it.",
+        ),
     )
+    return claim, frozenset(plausible_icv)
+
+
+def _apply_null_encryption_channel(
+    candidate_set: CandidateSet, observations: Sequence[EspPacketObservation]
+) -> CandidateSet:
+    """Independent of granularity/TFC — see module docstring. Only ever
+    narrows whatever is passed in; never widens or resurrects.
+    """
+    null_like_survivors = frozenset(
+        suite_id for suite_id in candidate_set.surviving if SUITE_FRAMINGS[suite_id].explicit_iv == 0
+    )
+    if not null_like_survivors:
+        return candidate_set
+
+    representative = next((o for o in observations if o.ciphertext_prefix), None)
+    if representative is None:
+        return eliminate(
+            candidate_set,
+            set(null_like_survivors),
+            "no payload byte evidence available to confirm NULL encryption; real ESP "
+            "ciphertext is essentially never coincidentally NULL, so absent positive "
+            "evidence NULL-ENC candidates are eliminated",
+        )
+
+    confirmed = frozenset(
+        suite_id
+        for suite_id in null_like_survivors
+        if _looks_like_null_encrypted_ip_header(
+            representative.ciphertext_prefix,
+            representative.wire_len - SUITE_FRAMINGS[suite_id].icv_len,
+        )
+    )
+    doomed_null = null_like_survivors - confirmed
+    if not doomed_null:
+        return candidate_set
+
+    version_nibble = representative.ciphertext_prefix[0] >> 4 if representative.ciphertext_prefix else None
+    return eliminate(
+        candidate_set,
+        set(doomed_null),
+        f"payload at the ciphertext offset does not parse as a length-consistent "
+        f"IP header (version nibble {hex(version_nibble) if version_nibble is not None else 'n/a'}); "
+        f"real ESP ciphertext is effectively random and essentially never parses "
+        f"this way, so NULL encryption is eliminated absent positive evidence",
+    )
+
+
+def analyze_esp_flow(
+    observations: Sequence[EspPacketObservation],
+    evidence: tuple[int, ...] = (),
+) -> EspConstraintResult:
+    wire_lengths = [o.wire_len for o in observations]
+    directions = [o.direction for o in observations]
 
     universe = frozenset(SUITE_FRAMINGS)
     candidate_set = CandidateSet(universe=universe, surviving=universe, eliminated_by=())
 
-    family_bucket = frozenset(
-        suite_id
-        for suite_id, framing in SUITE_FRAMINGS.items()
-        if framing.family == family and framing.pad_granularity == granularity
-    )
-    candidate_set = eliminate(
-        candidate_set,
-        set(universe - family_bucket),
-        f"gcd(E differences) = {granularity} implies ({family}, pad_granularity={granularity}) "
-        f"framing; excludes every suite outside that family/granularity",
-    )
+    granularity_claim, granularity = _granularity_channel(wire_lengths, evidence)
 
-    icv_claim = None
-    anchor_len = find_sustained_reverse_anchor(directions, wire_lengths)
-    if anchor_len is not None:
-        plausible_icv = solve_icv_candidates(anchor_len, granularity)
-        if plausible_icv:
-            icv_claim = Claim(
-                field="esp.icv_len",
-                value=tuple(sorted(plausible_icv)),
-                tier=Tier.INFERRED_SIDE_CHANNEL,
-                confidence=1.0,
-                method="esp_constraints.anchor_solver",
-                evidence=evidence,
-                caveats=(
-                    f"ICV derived from a presumed TCP pure-ACK anchor at length {anchor_len}; "
-                    f"anchor identification (modal smallest reverse-direction length during a "
-                    f"sustained unidirectional burst) is heuristic, not a protocol-level fact. "
-                    f"The arithmetic from an identified anchor is exact, but only conditional "
-                    f"on that identification being correct — a flow with small data packets or "
-                    f"a chatty reverse channel could mislead it.",
-                ),
-            )
-            doomed_by_icv = frozenset(
-                suite_id
-                for suite_id in candidate_set.surviving
-                if SUITE_FRAMINGS[suite_id].icv_len not in plausible_icv
-            )
-            candidate_set = eliminate(
-                candidate_set,
-                set(doomed_by_icv),
-                f"ACK anchor E={anchor_len} with inner P in {{40, 52}} implies icv_len in "
-                f"{sorted(plausible_icv)}; excludes every surviving suite with a different "
-                f"icv_len",
-            )
+    if granularity is not None:
+        family = _family_for_granularity(granularity)
+        family_bucket = frozenset(
+            suite_id
+            for suite_id, framing in SUITE_FRAMINGS.items()
+            if framing.family == family and framing.pad_granularity == granularity
+        )
+        candidate_set = eliminate(
+            candidate_set,
+            set(universe - family_bucket),
+            f"gcd(E differences) = {granularity} implies ({family}, pad_granularity={granularity}) "
+            f"framing; excludes every suite outside that family/granularity",
+        )
 
-    # NULL-encryption check, added on review: NULL-ENC (explicit_iv=0)
-    # shares granularity=4 with real AEAD/counter ciphers, and its wide
-    # spread of valid icv_len values (12 or 16) means it survives family
-    # and ICV narrowing on essentially any counter-mode capture by
-    # arithmetic coincidence alone — which would make verdict lifting
-    # (Phase 5) never reach unanimity, and make rule 10 (NULL encryption)
-    # a false positive on every capture. Real ESP ciphertext is opaque; if
-    # the payload doesn't actually decode as a plausible, length-consistent
-    # inner IP header, NULL encryption is eliminated. Absent any payload
-    # byte evidence at all, it's eliminated by the same logic that governs
-    # the confirming case: real ESP is essentially never actually NULL, so
-    # the absence of positive evidence is itself the elimination reason,
-    # not an unresolved question.
-    null_like_survivors = frozenset(
-        suite_id for suite_id in candidate_set.surviving if SUITE_FRAMINGS[suite_id].explicit_iv == 0
-    )
-    if null_like_survivors:
-        representative = next((o for o in observations if o.ciphertext_prefix), None)
-        if representative is None:
-            candidate_set = eliminate(
-                candidate_set,
-                set(null_like_survivors),
-                "no payload byte evidence available to confirm NULL encryption; real ESP "
-                "ciphertext is essentially never coincidentally NULL, so absent positive "
-                "evidence NULL-ENC candidates are eliminated",
-            )
-        else:
-            confirmed = frozenset(
-                suite_id
-                for suite_id in null_like_survivors
-                if _looks_like_null_encrypted_ip_header(
-                    representative.ciphertext_prefix,
-                    representative.wire_len - SUITE_FRAMINGS[suite_id].icv_len,
-                )
-            )
-            doomed_null = null_like_survivors - confirmed
-            if doomed_null:
-                version_nibble = representative.ciphertext_prefix[0] >> 4 if representative.ciphertext_prefix else None
-                candidate_set = eliminate(
-                    candidate_set,
-                    set(doomed_null),
-                    f"payload at the ciphertext offset does not parse as a length-consistent "
-                    f"IP header (version nibble {hex(version_nibble) if version_nibble is not None else 'n/a'}); "
-                    f"real ESP ciphertext is effectively random and essentially never parses "
-                    f"this way, so NULL encryption is eliminated absent positive evidence",
-                )
+    icv_claim, plausible_icv = _icv_channel(directions, wire_lengths, granularity, evidence)
+    if plausible_icv is not None:
+        doomed_by_icv = frozenset(
+            suite_id
+            for suite_id in candidate_set.surviving
+            if SUITE_FRAMINGS[suite_id].icv_len not in plausible_icv
+        )
+        candidate_set = eliminate(
+            candidate_set,
+            set(doomed_by_icv),
+            f"ACK anchor with inner P in {{40, 52}} implies icv_len in "
+            f"{sorted(plausible_icv)}; excludes every surviving suite with a different "
+            f"icv_len",
+        )
+
+    # NULL-encryption channel: runs regardless of whether granularity/TFC
+    # succeeded (see module docstring — this is the composition fix).
+    candidate_set = _apply_null_encryption_channel(candidate_set, observations)
 
     candidate_set = CandidateSet(
         universe=candidate_set.universe,
@@ -288,6 +345,4 @@ def analyze_esp_flow(
         indistinguishable=_indistinguishable_groups(candidate_set.surviving),
     )
 
-    return EspConstraintResult(
-        granularity_claim=granularity_claim, icv_claim=icv_claim, candidate_set=candidate_set
-    )
+    return EspConstraintResult(granularity_claim=granularity_claim, icv_claim=icv_claim, candidate_set=candidate_set)
