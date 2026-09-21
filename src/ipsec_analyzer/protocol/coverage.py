@@ -30,6 +30,13 @@ class CaptureCoverage:
     ike_sa_init_response_observed: bool
     esp_tunnels_total: int
     esp_tunnels_missing_a_direction: int
+    # Phase 6c: recorded here, not just in the Dockerfile's ARG, because
+    # the pinned build-time version and the version actually running are
+    # two different facts — this is what's actually running for *this*
+    # run, which is the one that matters for a tool whose central claim
+    # is auditable provenance (see ike_parse.get_tshark_version's own
+    # docstring — this is that function's one real consumer).
+    tshark_version: str
 
 
 def build_capture_coverage(
@@ -38,7 +45,7 @@ def build_capture_coverage(
     demux_result: DemuxResult,
     parsed_ike: ParsedIke,
 ) -> CaptureCoverage:
-    from ipsec_analyzer.protocol.ike_parse import EXCHANGE_TYPE_IKE_SA_INIT
+    from ipsec_analyzer.protocol.ike_parse import EXCHANGE_TYPE_IKE_SA_INIT, get_tshark_version
 
     init_messages = [m for m in parsed_ike.messages if m.exchange_type == EXCHANGE_TYPE_IKE_SA_INIT]
     request_observed = any(m.is_request and m.is_fully_captured for m in init_messages)
@@ -55,4 +62,5 @@ def build_capture_coverage(
         ike_sa_init_response_observed=response_observed,
         esp_tunnels_total=len(tunnels),
         esp_tunnels_missing_a_direction=missing_direction,
+        tshark_version=get_tshark_version(),
     )

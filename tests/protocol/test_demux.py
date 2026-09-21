@@ -170,11 +170,21 @@ class TestAhDetectedClaim:
     """Phase 5's rule 11 ("AH in use (deprecated)") needs a Claim, not
     just the raw `ah_frames` tuple — assessment/ reads the ClaimLedger,
     never protocol/ types directly.
+
+    Amendment (Phase 6b review): always a Claim now, never None — "we
+    examined this capture and found no AH" is itself an observation
+    `demux()` always has an answer for, not a check that could fail to
+    run. Reported as a coverage gap for rule 11 previously, which is
+    wrong on every AH-free capture (i.e. nearly all of them).
     """
 
-    def test_no_claim_when_no_ah_seen(self):
+    def test_claim_is_false_when_no_ah_seen(self):
         result = demux([_record(6, sport=443, dport=1234)])
-        assert extract_ah_detected_claim(result) is None
+        claim = extract_ah_detected_claim(result)
+        assert claim.tier is Tier.OBSERVED
+        assert claim.confidence == 1.0
+        assert claim.value is False
+        assert claim.evidence == ()
 
     def test_claim_when_ah_seen(self):
         result = demux([_record(AH_PROTO, payload=b"\x00" * 20, frame_no=7)])

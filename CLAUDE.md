@@ -49,16 +49,31 @@ Additional constraints:
   built — those get created when their phase arrives, not before.
 - **Docker is the canonical dev/execution environment** (MVP_BUILD_PROMPT.md
   §3, revised — this supersedes ARCHITECTURE.md's "Deliberately not used:
-  ... Docker for the MVP", which predates that revision). Run tests and CLI
-  invocations inside the pinned image built from the root `Dockerfile`
-  (Python 3.11 + TShark 4.4.18, version pinned via a `TSHARK_VERSION` build
-  arg since tshark's JSON output shape varies across releases; scapy,
-  pyyaml, jinja2, pytest installed — the project itself is mounted at
-  runtime, not baked into the image, so code changes don't need a rebuild):
+  ... Docker for the MVP", which predates that revision), but as of Phase
+  6c it's an implementation detail behind two entry points, not something
+  to invoke directly:
   ```
-  docker build -t ipsec-analyzer:dev .
-  docker run --rm -v "$PWD":/work -w /work ipsec-analyzer:dev python -m pytest tests/ -v
+  ./ipsec-analyze captures/some-capture.pcap   # builds the image on first
+                                                # use, then runs the CLI
+  make test                                    # full suite, rebuilding
+                                                # the image first
+  make build                                   # just (re)build the image
+  make clean                                   # remove generated reports
   ```
+  The pinned image (Python 3.11 + TShark 4.4.18, version pinned via a
+  `TSHARK_VERSION` build arg since tshark's JSON output shape varies
+  across releases; scapy, pyyaml, jinja2, pytest, and the project itself
+  all `pip install`ed into it) is built from the root `Dockerfile`.
+  **Unlike before Phase 6c, the project is no longer mounted at runtime —
+  it's baked into the image at build time**, so `ipsec-analyze` and
+  `import ipsec_analyzer` both work with no `PYTHONPATH`. The practical
+  consequence: `./ipsec-analyze` only rebuilds when the image doesn't
+  exist yet, so a source change needs `make build` (or deleting the image)
+  before `./ipsec-analyze` picks it up — `make test` doesn't have this
+  gap, since it rebuilds every time before running. If you (the agent)
+  edit source and then want to see it take effect via `./ipsec-analyze`
+  rather than `make test`, rebuild first.
+
   Background: this host's Homebrew toolchain is broken for any compiled
   C-extension package (Python's `pyexpat`, Wireshark's `tshark`) against
   macOS 26 ("Tahoe") — confirmed across python@3.11/3.14 and the host

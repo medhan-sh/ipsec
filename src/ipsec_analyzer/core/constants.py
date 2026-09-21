@@ -185,3 +185,101 @@ WEAK_IKE_INTEGRITY_IDS: frozenset[int] = frozenset({
     6,  # AUTH_HMAC_MD5_128
     7,  # AUTH_HMAC_SHA1_160
 })
+
+
+# --- IKEv2 transform ID -> name tables (Phase 6b) ---
+# cli.py resolves these during its typed-to-dict conversion (findings.json
+# and the report should never show a bare integer for a negotiated
+# algorithm) — added here, not in ike_parse.py or cli.py, on the same
+# basis as every other lookup table in this file: a name mapped to a wire
+# value is a factual claim about the protocol, sourced to a registry, and
+# belongs with the rest of this project's "never invent a framing/protocol
+# constant" tables. Cited to IANA's "Internet Key Exchange Version 2
+# (IKEv2) Parameters" registry, VERIFY BY HAND, same standard as the rest
+# of this file. Deliberately not exhaustive of every registry entry ever
+# assigned — covers the values this project's own test captures and rule
+# tables (WEAK_IKE_ENCRYPTION_IDS/WEAK_IKE_INTEGRITY_IDS/WEAK_DH_GROUPS/
+# STRONG_DH_GROUPS above) actually reference, plus the immediately
+# adjacent common values in each registry; an id with no entry resolves to
+# an explicit "UNKNOWN(<id>)" in cli.py rather than a KeyError or a guess.
+
+# "Transform Type 1 - Encryption Algorithm Transform IDs".
+IKE_ENCRYPTION_NAMES: dict[int, str] = {
+    1: "ENCR_DES_IV64",
+    2: "ENCR_DES",
+    3: "ENCR_3DES",
+    4: "ENCR_RC5",
+    5: "ENCR_IDEA",
+    6: "ENCR_CAST",
+    7: "ENCR_BLOWFISH",
+    8: "ENCR_3IDEA",
+    9: "ENCR_DES_IV32",
+    11: "ENCR_NULL",
+    12: "ENCR_AES_CBC",
+    13: "ENCR_AES_CTR",
+    14: "ENCR_AES_CCM_8",
+    15: "ENCR_AES_CCM_12",
+    16: "ENCR_AES_CCM_16",
+    18: "ENCR_AES_GCM_8",
+    19: "ENCR_AES_GCM_12",
+    20: "ENCR_AES_GCM_16",
+    23: "ENCR_CAMELLIA_CBC",
+    24: "ENCR_CAMELLIA_CTR",
+    25: "ENCR_CAMELLIA_CCM_8",
+    26: "ENCR_CAMELLIA_CCM_12",
+    27: "ENCR_CAMELLIA_CCM_16",
+    28: "ENCR_CHACHA20_POLY1305",
+}
+
+# "Transform Type 2 - Pseudorandom Function Transform IDs".
+IKE_PRF_NAMES: dict[int, str] = {
+    1: "PRF_HMAC_MD5",
+    2: "PRF_HMAC_SHA1",
+    3: "PRF_HMAC_TIGER",
+    4: "PRF_AES128_XCBC",
+    5: "PRF_HMAC_SHA2_256",
+    6: "PRF_HMAC_SHA2_384",
+    7: "PRF_HMAC_SHA2_512",
+    8: "PRF_AES128_CMAC",
+}
+
+# "Transform Type 3 - Integrity Algorithm Transform IDs".
+IKE_INTEGRITY_NAMES: dict[int, str] = {
+    1: "AUTH_HMAC_MD5_96",
+    2: "AUTH_HMAC_SHA1_96",
+    3: "AUTH_DES_MAC",
+    4: "AUTH_KPDK_MD5",
+    5: "AUTH_AES_XCBC_96",
+    6: "AUTH_HMAC_MD5_128",
+    7: "AUTH_HMAC_SHA1_160",
+    8: "AUTH_AES_CMAC_96",
+    9: "AUTH_AES_128_GMAC",
+    10: "AUTH_AES_192_GMAC",
+    11: "AUTH_AES_256_GMAC",
+    12: "AUTH_HMAC_SHA2_256_128",
+    13: "AUTH_HMAC_SHA2_384_192",
+    14: "AUTH_HMAC_SHA2_512_256",
+}
+
+# "Transform Type 4 - Diffie-Hellman Group Transform IDs" (this registry's
+# entries are descriptive names, not ALL_CAPS constants like the three
+# above — reusing the exact wording already used in WEAK_DH_GROUPS/
+# STRONG_DH_GROUPS' own comments so the two never silently disagree).
+IKE_DH_GROUP_NAMES: dict[int, str] = {
+    1: "768-bit MODP",
+    2: "1024-bit MODP",
+    5: "1536-bit MODP",
+    14: "2048-bit MODP",
+    15: "3072-bit MODP",
+    16: "4096-bit MODP",
+    17: "6144-bit MODP",
+    18: "8192-bit MODP",
+    19: "256-bit random ECP",
+    20: "384-bit random ECP",
+    21: "521-bit random ECP",
+    22: "1024-bit MODP w/ 160-bit prime order subgroup",
+    23: "2048-bit MODP w/ 224-bit prime order subgroup",
+    24: "2048-bit MODP w/ 256-bit prime order subgroup",
+    31: "Curve25519",
+    32: "Curve448",
+}

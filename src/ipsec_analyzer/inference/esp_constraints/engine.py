@@ -98,7 +98,7 @@ class EspPacketObservation:
 class EspConstraintResult:
     granularity_claim: Claim
     icv_claim: Claim | None  # None iff no anchor was found/usable
-    null_encryption_claim: Claim | None  # None unless NULL-ENC is positively confirmed (see _apply_null_encryption_channel)
+    null_encryption_claim: Claim | None  # True/False whenever the check ran; None only if NULL-ENC never reached it (see _apply_null_encryption_channel)
     candidate_set: CandidateSet  # always returned — see module docstring
 
 
@@ -119,13 +119,30 @@ def _indistinguishable_groups(suite_ids: frozenset[str]) -> tuple[frozenset[str]
     never be separated by this method — key length never changes framing
     at all. Computed over whatever survives elimination; groups of size 1
     aren't "indistinguishable from" anything and are omitted.
+
+    **Amendment (Phase 6a closeout review):** the returned tuple's *order*
+    must not depend on `suite_ids`' frozenset iteration order — that order
+    is seeded by Python's per-process hash randomization (`PYTHONHASHSEED`
+    is random by default) and is therefore different across separate runs
+    of the exact same process on the exact same capture. That's invisible
+    to any test comparing sets/frozensets with `==` (membership, not
+    order, is what those compare), but it broke `tests/fixtures/
+    golden_findings.json` — a real cross-process determinism bug this
+    module shipped in Phase 3/4 and nothing caught until a byte-for-byte
+    JSON diff was checked. Iterating `sorted(suite_ids)` fixes each
+    group's first-seen order deterministically; sorting the final tuple by
+    each group's own sorted members is a second, independent guarantee
+    that doesn't rely on dict-insertion-order semantics at all.
     """
     groups: dict[tuple[str, int, int, int], set[str]] = {}
-    for suite_id in suite_ids:
+    for suite_id in sorted(suite_ids):
         framing = SUITE_FRAMINGS[suite_id]
         key = (framing.family, framing.pad_granularity, framing.explicit_iv, framing.icv_len)
         groups.setdefault(key, set()).add(suite_id)
-    return tuple(frozenset(group) for group in groups.values() if len(group) > 1)
+    return tuple(
+        frozenset(group)
+        for group in sorted((g for g in groups.values() if len(g) > 1), key=lambda g: sorted(g))
+    )
 
 
 def _looks_like_null_encrypted_ip_header(prefix: bytes, candidate_ciphertext_len: int) -> bool:
@@ -249,6 +266,18 @@ def _icv_channel(
     return claim, frozenset(plausible_icv)
 
 
+def _null_encryption_claim(value: bool, evidence: tuple[int, ...], reason: str) -> Claim:
+    return Claim(
+        field="esp.null_encryption_confirmed",
+        value=value,
+        tier=Tier.INFERRED_SIDE_CHANNEL,
+        confidence=1.0,
+        method="esp_constraints.null_check",
+        evidence=evidence,
+        caveats=(reason,),
+    )
+
+
 def _apply_null_encryption_channel(
     candidate_set: CandidateSet,
     observations: Sequence[EspPacketObservation],
@@ -258,32 +287,46 @@ def _apply_null_encryption_channel(
     narrows whatever is passed in; never widens or resurrects.
 
     Returns the (possibly narrowed) candidate set, plus a `Claim` for
-    Phase 5's rule 10 ("NULL encryption") *only* when NULL-ENC is
-    positively confirmed — i.e. survives this channel with real supporting
-    evidence, not merely "wasn't eliminated for lack of trying." Added on
-    review: rule 10's condition needs something in the ClaimLedger to
-    check (assessment/ reads claims, not `CandidateSet` internals
-    directly), and "NULL-ENC is still in `surviving`" isn't itself a
-    claim — it's the absence of an elimination, which is exactly the kind
-    of implicit signal invariant 3 says not to treat as equivalent to an
-    explicit finding.
+    Phase 5's rule 10 ("NULL encryption") whenever this channel actually
+    had something to check — i.e. NULL-ENC survived every earlier channel
+    and reached this one still alive. `True` when it's positively
+    confirmed (survives with real supporting payload evidence), `False`
+    when this channel ran and eliminated it (no payload evidence at all,
+    or payload evidence that doesn't parse as NULL-ENC's plaintext). Only
+    `None` (no claim) when there was nothing to check in the first place
+    — NULL-ENC already excluded by a different, earlier channel (e.g. the
+    granularity/family exclusion), in which case that channel's own claim
+    already answers the same question and attributing a "false" result
+    here would misstate which method actually produced it.
+
+    **Amendment (Phase 6b review):** the previous version only ever
+    returned a claim on positive confirmation. On every real capture
+    obtained for this project where granularity abstains (the common
+    case — too few distinct packet sizes), this channel is the one doing
+    real work, eliminating NULL-ENC via the IP-header check — and that
+    elimination was visible in the candidate set's own `eliminated_by`
+    while `assessment/engine.py` simultaneously reported rule 10 as a
+    coverage gap for lack of any claim to check. Same claim, contradicting
+    itself between two sections of one report. Invariant 3's is-it-a-
+    finding-or-an-absence distinction is not "did anything get
+    eliminated" — it's "did the check run": here, that's exactly
+    `null_like_survivors` being non-empty at entry.
     """
     null_like_survivors = frozenset(
         suite_id for suite_id in candidate_set.surviving if SUITE_FRAMINGS[suite_id].explicit_iv == 0
     )
     if not null_like_survivors:
-        return candidate_set, None
+        return candidate_set, None  # nothing survived to this channel — see amendment note above
 
     representative = next((o for o in observations if o.ciphertext_prefix), None)
     if representative is None:
-        candidate_set = eliminate(
-            candidate_set,
-            set(null_like_survivors),
+        reason = (
             "no payload byte evidence available to confirm NULL encryption; real ESP "
             "ciphertext is essentially never coincidentally NULL, so absent positive "
-            "evidence NULL-ENC candidates are eliminated",
+            "evidence NULL-ENC candidates are eliminated"
         )
-        return candidate_set, None
+        candidate_set = eliminate(candidate_set, set(null_like_survivors), reason)
+        return candidate_set, _null_encryption_claim(False, evidence, reason)
 
     confirmed = frozenset(
         suite_id
@@ -296,30 +339,28 @@ def _apply_null_encryption_channel(
     doomed_null = null_like_survivors - confirmed
     if doomed_null:
         version_nibble = representative.ciphertext_prefix[0] >> 4 if representative.ciphertext_prefix else None
-        candidate_set = eliminate(
-            candidate_set,
-            set(doomed_null),
+        elimination_reason = (
             f"payload at the ciphertext offset does not parse as a length-consistent "
             f"IP header (version nibble {hex(version_nibble) if version_nibble is not None else 'n/a'}); "
             f"real ESP ciphertext is effectively random and essentially never parses "
-            f"this way, so NULL encryption is eliminated absent positive evidence",
+            f"this way, so NULL encryption is eliminated absent positive evidence"
         )
+        candidate_set = eliminate(candidate_set, set(doomed_null), elimination_reason)
 
     if not confirmed:
-        return candidate_set, None
+        return candidate_set, _null_encryption_claim(
+            False,
+            evidence,
+            "payload at the ciphertext offset does not parse as a length-consistent IP header "
+            "for any surviving NULL-ENC candidate",
+        )
 
-    null_encryption_claim = Claim(
-        field="esp.null_encryption_confirmed",
-        value=True,
-        tier=Tier.INFERRED_SIDE_CHANNEL,
-        confidence=1.0,
-        method="esp_constraints.null_check",
-        evidence=evidence,
-        caveats=(
-            f"payload at the ciphertext offset parses as a length-consistent IP header "
-            f"for {sorted(confirmed)}; consistent with NULL encryption (no confidentiality "
-            f"protection on this traffic)",
-        ),
+    null_encryption_claim = _null_encryption_claim(
+        True,
+        evidence,
+        f"payload at the ciphertext offset parses as a length-consistent IP header "
+        f"for {sorted(confirmed)}; consistent with NULL encryption (no confidentiality "
+        f"protection on this traffic)",
     )
     return candidate_set, null_encryption_claim
 

@@ -54,7 +54,11 @@ SEVERITY_COLORS = {
 GAP_KIND_LABELS = {
     "structurally_unobservable": "never observable from any passive capture",
     "not_implemented": "not parsed by this MVP",
-    "not_observed_in_capture": "not present in this capture",
+    # Phase 6b review: "not present" asserts absence; the honest claim is
+    # ignorance, not a negative observation (rules 8/9 gap this way when
+    # granularity/ICV weren't recovered, which says nothing about whether
+    # the underlying property is actually present or absent on the wire).
+    "not_observed_in_capture": "not observed in this capture",
 }
 
 

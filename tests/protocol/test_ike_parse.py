@@ -11,8 +11,8 @@ from ipsec_analyzer.protocol.ike_parse import (
     ParsedIke,
     TsharkError,
     extract_ike_sa_init_claims,
+    extract_ike_version_claim,
     extract_ikev1_aggressive_mode_claim,
-    extract_ikev1_detected_claim,
     get_tshark_version,
     notify_posture_inputs,
     parse_ike_messages,
@@ -247,30 +247,42 @@ class TestWithinFrameTruncation:
         assert notify_posture_inputs(parsed) is None
 
 
-class TestIkev1Detection:
+class TestIkeVersionClaim:
     """Smaller item from Phase 4's review: 'IKEv1 should say something,
     not nothing.' extract_ike_sa_init_claims() correctly returns [] for
     an IKEv1 capture (the exchange types and SA structure genuinely
     differ), but that's indistinguishable on its own from a tool failure.
     This is the explicit signal.
+
+    Amendment (Phase 6b review, renamed from TestIkev1Detection): the
+    function now always emits ike.version (1 or 2) whenever any IKE
+    traffic was observed, not only when IKEv1 is found — an IKEv2
+    capture's check having genuinely run and come back "not IKEv1" must
+    not read the same as "never checked" (see extract_ike_version_claim's
+    own docstring).
     """
 
     def test_ikev1_capture_is_detected(self):
         parsed = parse_ike_messages(str(CAPTURES / "weberblog_ikev1.pcap"))
-        claim = extract_ikev1_detected_claim(parsed)
+        claim = extract_ike_version_claim(parsed)
         assert claim is not None
         assert claim.tier is Tier.OBSERVED
         assert claim.value == 1
         assert "IKEv1" in claim.caveats[0]
         assert claim.evidence
 
-    def test_ikev2_capture_is_not_flagged(self):
+    def test_ikev2_capture_reports_version_2_not_a_gap(self):
         parsed = parse_ike_messages(str(CAPTURES / "ikev2-decrypt-aes256gcm16.pcap"))
-        assert extract_ikev1_detected_claim(parsed) is None
+        claim = extract_ike_version_claim(parsed)
+        assert claim is not None
+        assert claim.tier is Tier.OBSERVED
+        assert claim.confidence == 1.0
+        assert claim.value == 2
+        assert claim.evidence
 
     def test_non_ipsec_capture_is_not_flagged(self):
         parsed = parse_ike_messages(str(CAPTURES / "http.pcap"))
-        assert extract_ikev1_detected_claim(parsed) is None
+        assert extract_ike_version_claim(parsed) is None
 
 
 class TestTsharkVersion:
@@ -293,11 +305,22 @@ class TestIkev1AggressiveModeDetection:
     verified against a constructed fixture, same honest-gap treatment as
     fragmentation. The negative case (Main Mode correctly not flagged) is
     checked against the real capture.
+
+    Amendment (Phase 6b review): a negative result ("phase-1 was observed,
+    and it wasn't Aggressive Mode") is now a Claim with value False, not
+    an absent claim — see extract_ikev1_aggressive_mode_claim's own
+    docstring for why "checked and came back no" must not collapse into
+    "never checked".
     """
 
-    def test_real_ikev1_capture_uses_main_mode_not_aggressive(self):
+    def test_real_ikev1_capture_uses_main_mode_reports_false_not_a_gap(self):
         parsed = parse_ike_messages(str(CAPTURES / "weberblog_ikev1.pcap"))
-        assert extract_ikev1_aggressive_mode_claim(parsed) is None
+        claim = extract_ikev1_aggressive_mode_claim(parsed)
+        assert claim is not None
+        assert claim.tier is Tier.OBSERVED
+        assert claim.value is False
+        assert "Main Mode" in claim.caveats[0]
+        assert claim.evidence
 
     def test_aggressive_mode_detected_from_constructed_fixture(self):
         parsed = ParsedIke(
@@ -314,13 +337,22 @@ class TestIkev1AggressiveModeDetection:
         assert claim.value is True
         assert claim.evidence == (1,)
 
-    def test_ikev2_exchange_type_never_flagged_even_if_numerically_similar(self):
-        # IKEv2 has no Aggressive Mode; a v2 message must not be flagged
-        # even though exchange-type numbers are reused across versions.
+    def test_ikev2_ike_sa_init_reports_false_not_a_gap(self):
+        # IKEv2 has no Aggressive Mode exchange type at all; observing its
+        # IKE_SA_INIT is enough to confidently answer False, structurally.
         parsed = ParsedIke(
             messages=[
                 IkeMessage(frame_no=1, exchange_type=EXCHANGE_TYPE_IKE_SA_INIT, is_request=True, major_version=2),
             ],
             tshark_exit_clean=True,
         )
+        claim = extract_ikev1_aggressive_mode_claim(parsed)
+        assert claim is not None
+        assert claim.tier is Tier.OBSERVED
+        assert claim.value is False
+        assert "IKEv2" in claim.caveats[0]
+        assert claim.evidence == (1,)
+
+    def test_no_phase1_exchange_observed_at_all_is_a_genuine_gap(self):
+        parsed = ParsedIke(messages=[], tshark_exit_clean=True)
         assert extract_ikev1_aggressive_mode_claim(parsed) is None

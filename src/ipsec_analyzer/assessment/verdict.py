@@ -121,6 +121,17 @@ class AmbiguousVerdict:
     surviving_true: frozenset[str]
     surviving_false: frozenset[str]
     basis: str
+    # Phase 6b review fix: these were only ever set on `Verdict`, so every
+    # ambiguous result silently dropped both fields from the emitted JSON
+    # — a real contract defect, not a design choice (the Phase 6 report
+    # claimed `basis_tier` was present on "every verdict" when it wasn't).
+    # `confidence` is 1.0 here for the same reason it is on `Verdict`:
+    # disagreement is itself a certain fact about the candidate set — we
+    # are not "50% sure" the survivors disagree, we know they do.
+    # `basis_tier` means the same thing as on `Verdict`: the weakest tier
+    # among the claims that narrowed the set, independent of confidence.
+    confidence: float = 1.0
+    basis_tier: Tier = Tier.NOT_OBSERVABLE
 
 
 def lift_verdict(
@@ -143,10 +154,12 @@ def lift_verdict(
     suite, not the tier of the claim behind it, so the caller — which
     already has the actual Claim objects on hand — passes the tiers in
     directly rather than this function trying to parse tiers back out of
-    free text. `min(narrowing_tiers)` becomes the unanimous Verdict's
-    `basis_tier`; omitted (or empty) means "no claims are known to have
-    narrowed this set," which normalizes to NOT_OBSERVABLE via
-    `Verdict.basis_tier`'s own default.
+    free text. `min(narrowing_tiers)` becomes `basis_tier` on whichever
+    result is returned — `Verdict` on unanimity, `AmbiguousVerdict` on
+    disagreement, both fields present either way (Phase 6b review fix:
+    an earlier version only set this on `Verdict`); omitted (or empty)
+    means "no claims are known to have narrowed this set," which
+    normalizes to NOT_OBSERVABLE via each dataclass's own default.
     """
     predicate = PREDICATES[predicate_name]
     surviving = candidate_set.surviving
@@ -169,6 +182,7 @@ def lift_verdict(
 
     surviving_true = frozenset(s for s, v in outcomes.items() if v)
     surviving_false = frozenset(s for s, v in outcomes.items() if not v)
+    basis_tier = min(narrowing_tiers) if narrowing_tiers else Tier.NOT_OBSERVABLE
     return AmbiguousVerdict(
         predicate=predicate_name,
         surviving_true=surviving_true,
@@ -177,4 +191,5 @@ def lift_verdict(
             f"Surviving candidates disagree on {predicate_name}: "
             f"{len(surviving_true)} agree, {len(surviving_false)} disagree"
         ),
+        basis_tier=basis_tier,
     )

@@ -34,6 +34,8 @@ class TestCoverageHeadlineNumber:
         assert result.checks_total == 15
         assert result.checks_assessable == 0
         assert result.checks_gap == 15
+        assert result.checks_found == 0
+        assert result.checks_passed == 0
         assert result.findings == ()
         assert len(result.gaps) == 15
 
@@ -82,12 +84,14 @@ class TestCoverageHeadlineNumber:
 
     def test_condition_false_is_neither_finding_nor_gap(self, rules):
         # Claim observed at sufficient tier, but the value doesn't trigger
-        # the rule — assessed, and the answer is negative.
+        # the rule — assessed, and the answer is negative: a PassedCheck
+        # (Phase 6b review item 2), not silence.
         ledger = ClaimLedger.from_claims(_claim("ike_sa.dh_group", 19))  # strong group
         result = evaluate_rules(ledger, rules)
         assert result.checks_assessable >= 1
         assert not any(f.rule_id == "weak_dh_group_negotiated" for f in result.findings)
         assert not any(g.rule_id == "weak_dh_group_negotiated" for g in result.gaps)
+        assert any(p.rule_id == "weak_dh_group_negotiated" for p in result.passes)
 
 
 class TestNoInjectedClaims:
@@ -315,6 +319,59 @@ class TestMultipleMatchingClaimsPerRule:
         result = evaluate_rules(ledger, rules)
         findings = [f for f in result.findings if f.rule_id == "sixty_four_bit_block_cipher_in_esp"]
         assert len(findings) == 1
+
+    def test_mixed_rule_counts_as_found_and_does_not_also_report_a_pass(self, rules):
+        # A rule with one triggering claim and one clean claim (e.g. two
+        # ESP tunnels, only one using a weak cipher) counts entirely under
+        # "found" for the headline — the clean tunnel's claim isn't also
+        # surfaced as a separate PassedCheck for the same rule. Disclosed
+        # simplification (see engine.py's own amendment note); no real
+        # capture available to this project has produced this mix yet.
+        ledger = ClaimLedger.from_claims(
+            _claim("esp.granularity", 8, tier=Tier.INFERRED_SIDE_CHANNEL, evidence=(1,)),
+            _claim("esp.granularity", 16, tier=Tier.INFERRED_SIDE_CHANNEL, evidence=(2,)),
+        )
+        result = evaluate_rules(ledger, rules)
+        assert any(f.rule_id == "sixty_four_bit_block_cipher_in_esp" for f in result.findings)
+        assert not any(p.rule_id == "sixty_four_bit_block_cipher_in_esp" for p in result.passes)
+
+
+class TestPassedCheck:
+    """Item 2 of the Phase 6b review: a rule that's assessable and whose
+    condition evaluates false for every qualifying claim is a third,
+    positive outcome — PassedCheck — not silence.
+    """
+
+    def test_clean_capture_reports_passes_not_an_empty_findings_table(self, rules):
+        ledger = ClaimLedger.from_claims(
+            _claim("ike_sa.dh_group", 19),  # strong group — passes weak_dh_group_negotiated
+            _claim("ike.version", 2),  # IKEv2 — passes ikev1_in_use
+        )
+        result = evaluate_rules(ledger, rules)
+        pass_ids = {p.rule_id for p in result.passes}
+        assert "weak_dh_group_negotiated" in pass_ids
+        assert "ikev1_in_use" in pass_ids
+        assert result.findings == ()
+
+    def test_passed_check_carries_tier_and_evidence(self, rules):
+        ledger = ClaimLedger.from_claims(_claim("ike.version", 2, evidence=(5, 6)))
+        result = evaluate_rules(ledger, rules)
+        passed = next(p for p in result.passes if p.rule_id == "ikev1_in_use")
+        assert passed.tier is Tier.OBSERVED
+        assert passed.evidence == (5, 6)
+        assert passed.scope == (5, 6)
+        assert passed.title  # non-empty
+
+    def test_found_plus_passed_plus_gap_equals_total(self, rules):
+        ledger = ClaimLedger.from_claims(
+            _claim("ike_sa.dh_group", 2),  # weak — a finding
+            _claim("ike.version", 2),  # a pass
+        )
+        result = evaluate_rules(ledger, rules)
+        assert result.checks_found + result.checks_passed + result.checks_gap == result.checks_total
+        assert result.checks_found == 1
+        assert result.checks_passed == 1
+        assert result.checks_gap == 13
 
 
 class TestRealCaptureIntegration:

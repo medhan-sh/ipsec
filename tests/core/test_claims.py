@@ -32,6 +32,13 @@ class TestClaimValidation:
             )
 
     def test_not_observable_claim_is_valid_with_no_value(self):
+        # Dataclass-level only: the *dataclass* is free to carry any float
+        # confidence in [0, 1] at this tier (0.0 by convention everywhere
+        # this project constructs one) — nothing in Claim.__post_init__
+        # forces it to 0.0. The *serialized* form is a separate, stricter
+        # rule (a tier with no value shouldn't carry a confidence number
+        # either) enforced in cli.py's typed-to-dict conversion and
+        # covered by tests/test_cli.py::TestNotObservableClaimsSerializeConfidenceAsNull.
         claim = Claim(
             field="x",
             value=None,

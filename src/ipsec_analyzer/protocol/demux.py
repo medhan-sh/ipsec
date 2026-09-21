@@ -177,19 +177,28 @@ def _to_esp_record(record: PacketRecord, payload: bytes) -> EspRecord | None:
     return EspRecord(frame_no=record.frame_no, src=record.src, dst=record.dst, spi=spi, payload=payload)
 
 
-def extract_ah_detected_claim(result: DemuxResult) -> Claim | None:
-    """OBSERVED claim that AH (IP protocol 51) is in use, or None if no AH
-    traffic was seen. Added for Phase 5's rule 11 ("AH in use
-    (deprecated)") — a direct read of the IP protocol field, not an
-    inference, so OBSERVED at confidence 1.0 like `ike_parse.py`'s claims.
-    Deep AH analysis stays out of scope (per MVP_BUILD_PROMPT.md Phase 4's
-    "Do not build"); this only reports that AH frames exist.
+def extract_ah_detected_claim(result: DemuxResult) -> Claim:
+    """OBSERVED claim for whether AH (IP protocol 51) is in use in this
+    capture. Added for Phase 5's rule 11 ("AH in use (deprecated)") — a
+    direct read of the IP protocol field, not an inference, so OBSERVED
+    at confidence 1.0 like `ike_parse.py`'s claims. Deep AH analysis stays
+    out of scope (per MVP_BUILD_PROMPT.md Phase 4's "Do not build"); this
+    only reports whether AH frames exist.
+
+    **Amendment (Phase 6b review):** previously returned `None` (no
+    claim) when zero AH frames were seen, so a clean capture — the check
+    having actually run via `demux()` and come back negative — reported
+    rule 11 as a coverage gap rather than a passed check. `demux()` has
+    no failure mode that would make "we examined this capture and found
+    no AH" untrue; this now always returns a `Claim`, `True` or `False`,
+    never `None`. Evidence is empty when `False` — there's nothing to
+    cite for an absence, same as any other negative OBSERVED claim in
+    this project.
     """
-    if not result.ah_frames:
-        return None
+    detected = bool(result.ah_frames)
     return Claim(
         field="ah.detected",
-        value=True,
+        value=detected,
         tier=Tier.OBSERVED,
         confidence=1.0,
         method="demux.extract_ah_detected_claim",
