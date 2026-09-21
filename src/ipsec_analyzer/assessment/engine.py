@@ -10,12 +10,35 @@ about `core.claims`/`core.ledger` and the rules it was handed.
 A rule is a **coverage gap** when the ledger has no claim for `target`, or
 the claim it has is below `min_tier` — this is not "the finding didn't
 fire," it's "we couldn't check." A rule that *was* checked and whose
-condition came back false is neither a finding nor a gap: it was
-assessed, and the answer was negative. `checks_assessable` counts rules
-that were actually checked (at least one qualifying claim existed, finding
-or not), `checks_total` is always the full rule count, and `checks_gap` is
-the difference — the headline coverage number MVP_BUILD_PROMPT.md's
-acceptance criteria call for.
+condition came back false is a **passed check** (`PassedCheck` — amendment
+below): it was assessed, and the answer was negative. `checks_assessable`
+counts rules that were actually checked (at least one qualifying claim
+existed, found or passed), `checks_total` is always the full rule count,
+and `checks_gap` is the difference — the headline coverage number
+MVP_BUILD_PROMPT.md's acceptance criteria call for.
+
+**Amendment (Phase 6b review): `PassedCheck` added.** Previously a rule
+that was assessable and whose condition came back false produced nothing
+at all — no `Finding`, no `CoverageGap`, no record of any kind. A clean
+capture (every check assessable, nothing wrong found) then rendered as an
+empty findings table with no indication that 11 checks actually ran and
+passed versus were never checkable — indistinguishable, at the report
+layer, from a tool that silently did nothing. `checks_found`/
+`checks_passed` split what `checks_assessable` used to report as one
+number; `checks_assessable` is now a derived property (`checks_found +
+checks_passed`), kept for every existing caller that already reads it.
+Counted **per rule**, not per raw `Finding`/`PassedCheck` object — a rule
+with several qualifying claims (e.g. two ESP tunnels) that produces even
+one `Finding` counts entirely under "found" for the headline, and its
+passing claims (if any) are not separately added to `passes[]`; only a
+rule where *every* qualifying claim passed counts as "passed" and gets a
+`PassedCheck` per such claim. This keeps `checks_found + checks_passed +
+checks_gap == checks_total` exactly, matching every existing per-rule
+coverage invariant — it does mean a genuinely mixed rule (one tunnel
+triggers, a different tunnel of the same rule doesn't) surfaces only its
+findings in the report, not a redundant "also passed for the other
+tunnel" line; disclosed as a known simplification since no real capture
+available to this project has produced that mix yet.
 
 Rules 14 ("PFS") and 15 ("Anti-replay") are always coverage gaps in this
 MVP: no code path anywhere in the project emits a claim for
@@ -78,6 +101,22 @@ class Finding:
 
 
 @dataclass(frozen=True)
+class PassedCheck:
+    """A rule that was assessable and whose condition evaluated false for
+    every qualifying claim — the check ran, and the answer was clean.
+    Mirrors `Finding`'s evidence/scope/tier shape (minus severity/
+    category/recommendation/references, which only make sense for
+    something that needs fixing) so the report can render passes and
+    findings with the same tier-badge machinery.
+    """
+    rule_id: str
+    title: str
+    tier: Tier
+    evidence: tuple[int, ...]
+    scope: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
 class CoverageGap:
     rule_id: str
     title: str
@@ -97,19 +136,27 @@ class CoverageGap:
 @dataclass(frozen=True)
 class AssessmentResult:
     findings: tuple[Finding, ...]
+    passes: tuple[PassedCheck, ...]
     gaps: tuple[CoverageGap, ...]
     checks_total: int
-    checks_assessable: int
+    checks_found: int
+    checks_passed: int
+
+    @property
+    def checks_assessable(self) -> int:
+        return self.checks_found + self.checks_passed
 
     @property
     def checks_gap(self) -> int:
-        return self.checks_total - self.checks_assessable
+        return self.checks_total - self.checks_found - self.checks_passed
 
 
 def evaluate_rules(ledger: ClaimLedger, rules: list[Rule]) -> AssessmentResult:
     findings: list[Finding] = []
+    passes: list[PassedCheck] = []
     gaps: list[CoverageGap] = []
-    assessable = 0
+    checks_found = 0
+    checks_passed = 0
 
     for rule in rules:
         claims = ledger.get_all(rule.target)
@@ -133,17 +180,17 @@ def evaluate_rules(ledger: ClaimLedger, rules: list[Rule]) -> AssessmentResult:
             )
             continue
 
-        # Phase 5a review fix #3: assessed once per rule for the headline
-        # coverage number, but every qualifying claim gets its own finding
-        # check below — a rule with two matching claims (e.g. two ESP
-        # tunnels) can now produce zero, one, or two findings.
-        assessable += 1
+        # Phase 5a review fix #3: every qualifying claim gets its own
+        # finding/pass check — a rule with two matching claims (e.g. two
+        # ESP tunnels) can now produce zero, one, or two findings.
+        rule_findings: list[Finding] = []
+        rule_passes: list[PassedCheck] = []
         for claim in qualifying:
             if rule.condition.evaluate(claim.value):
                 raw_value = claim.value
                 if rule.condition.field is not None and isinstance(claim.value, dict):
                     raw_value = claim.value.get(rule.condition.field)
-                findings.append(
+                rule_findings.append(
                     Finding(
                         rule_id=rule.id,
                         title=rule.render(rule.title, raw_value),
@@ -156,10 +203,34 @@ def evaluate_rules(ledger: ClaimLedger, rules: list[Rule]) -> AssessmentResult:
                         scope=claim.evidence,
                     )
                 )
+            else:
+                rule_passes.append(
+                    PassedCheck(
+                        rule_id=rule.id,
+                        title=rule.title,
+                        tier=claim.tier,
+                        evidence=claim.evidence,
+                        scope=claim.evidence,
+                    )
+                )
+
+        # Phase 6b review: a rule counts as "found" for the headline the
+        # moment any one of its qualifying claims triggers it, even if
+        # another claim for the same rule (e.g. a different ESP tunnel)
+        # passed — see this module's own amendment note above for why
+        # that passing claim isn't separately surfaced in `passes[]`.
+        if rule_findings:
+            findings.extend(rule_findings)
+            checks_found += 1
+        else:
+            passes.extend(rule_passes)
+            checks_passed += 1
 
     return AssessmentResult(
         findings=tuple(findings),
+        passes=tuple(passes),
         gaps=tuple(gaps),
         checks_total=len(rules),
-        checks_assessable=assessable,
+        checks_found=checks_found,
+        checks_passed=checks_passed,
     )

@@ -68,6 +68,7 @@ EXCHANGE_TYPE_IKE_SA_INIT = 34
 
 # IANA "ISAKMP Exchange Types" registry (RFC 2408 §3.1, IKEv1's phase-1
 # exchanges): 2 = Identity Protection (Main Mode), 4 = Aggressive.
+IKEV1_EXCHANGE_TYPE_MAIN_MODE = 2
 IKEV1_EXCHANGE_TYPE_AGGRESSIVE = 4
 
 _TSHARK_TIMEOUT_SECONDS = 60
@@ -459,65 +460,114 @@ def notify_posture_inputs(parsed: ParsedIke) -> dict | None:
     }
 
 
-def extract_ikev1_detected_claim(parsed: ParsedIke) -> Claim | None:
-    """OBSERVED claim that IKEv1 is in use, or None if every IKE message
-    observed is IKEv2 (or there's no IKE traffic at all).
+def extract_ike_version_claim(parsed: ParsedIke) -> Claim | None:
+    """OBSERVED claim naming which major IKE version this capture's
+    traffic uses (1 or 2), or None if no IKE message was parsed at all.
 
-    Added on review: this project's SA-parameter extraction is IKEv2-
-    shaped (`extract_ike_sa_init_claims` correctly returns nothing for an
-    IKEv1 capture — the exchange types and SA structure genuinely
-    differ), and "no claims" is indistinguishable on its own from "this
-    tool is broken." This claim exists so an evaluator watching a real
-    IKEv1 capture see an explicit result — "IKEv1 detected, SA parameter
-    extraction not attempted (out of scope for this MVP)" — instead of a
-    silent blank. IKEv1 itself being a deprecated protocol (RFC 9395) is
-    a policy question for Phase 5's rules — not decided here; this claim
-    only reports the observed fact, which is all this phase is scoped to
-    do.
+    **Amendment (Phase 6b review, renamed from `extract_ikev1_detected_
+    claim`):** the previous version only emitted a claim when IKEv1 was
+    found, so an IKEv2 capture — the check having actually run and come
+    back negative — fell through to "no claim observed for ike.version",
+    which `assessment/engine.py` cannot tell apart from "this capture was
+    never checked." Rule `ikev1_in_use`'s `min_tier` requirement then
+    reported a coverage gap on every clean IKEv2 capture, which is wrong:
+    the check ran, and the answer was no. Now always emits a value (1 or
+    2) whenever at least one IKE message of either version was observed;
+    only a capture with zero IKE traffic at all still gets no claim,
+    which is the one case that genuinely wasn't checked.
+
+    A capture carrying both major versions (not seen in any real capture
+    available to this project) reports 1 — IKEv1's mere presence is
+    itself what `ikev1_in_use` cares about, and `extract_ike_sa_init_
+    claims`'s own IKEv2-only extraction already makes IKEv1 traffic's
+    absence from SA-parameter claims self-evident elsewhere.
     """
-    ikev1_messages = [m for m in parsed.messages if m.major_version == 1]
-    if not ikev1_messages:
+    if not parsed.messages:
         return None
+    ikev1_messages = [m for m in parsed.messages if m.major_version == 1]
+    if ikev1_messages:
+        return Claim(
+            field="ike.version",
+            value=1,
+            tier=Tier.OBSERVED,
+            confidence=1.0,
+            method="ike_parse.extract_ike_version_claim",
+            evidence=tuple(m.frame_no for m in ikev1_messages),
+            caveats=(
+                "IKEv1 detected; this tool's SA-parameter extraction targets IKEv2's "
+                "exchange types and payload structure and was not attempted for this "
+                "capture's IKE messages — out of scope for this MVP, not a parse failure",
+            ),
+        )
     return Claim(
         field="ike.version",
-        value=1,
+        value=2,
         tier=Tier.OBSERVED,
         confidence=1.0,
-        method="ike_parse.extract_ikev1_detected_claim",
-        evidence=tuple(m.frame_no for m in ikev1_messages),
-        caveats=(
-            "IKEv1 detected; this tool's SA-parameter extraction targets IKEv2's "
-            "exchange types and payload structure and was not attempted for this "
-            "capture's IKE messages — out of scope for this MVP, not a parse failure",
-        ),
+        method="ike_parse.extract_ike_version_claim",
+        evidence=tuple(m.frame_no for m in parsed.messages),
     )
 
 
 def extract_ikev1_aggressive_mode_claim(parsed: ParsedIke) -> Claim | None:
-    """OBSERVED claim that IKEv1 Aggressive Mode is in use, for Phase 5's
-    rule 3. Aggressive Mode exchanges the peer identity and (in PSK
-    deployments) an authentication hash in the clear during the first two
-    messages, which Main Mode protects — a real, distinct weakness from
-    "IKEv1 is deprecated" generally, so it gets its own claim rather than
-    being folded into `extract_ikev1_detected_claim`.
+    """OBSERVED claim for whether IKEv1 Aggressive Mode is in use, for
+    Phase 5's rule 3. Aggressive Mode exchanges the peer identity and (in
+    PSK deployments) an authentication hash in the clear during the first
+    two messages, which Main Mode protects — a real, distinct weakness
+    from "IKEv1 is deprecated" generally, so it gets its own claim rather
+    than being folded into `extract_ike_version_claim`.
+
+    **Amendment (Phase 6b review):** the previous version only emitted a
+    claim on a positive finding, so both an IKEv2 capture and an IKEv1
+    Main Mode capture — this check having genuinely run and correctly
+    found no Aggressive Mode — fell through to "no claim observed",
+    indistinguishable from "never checked" (same defect class as
+    `extract_ike_version_claim`'s, above). Now emits `False` whenever an
+    initial/phase-1 exchange was actually observed — IKEv2's IKE_SA_INIT,
+    or IKEv1's Main Mode — since IKEv2 has no Aggressive Mode exchange
+    type at all, every IKEv2 capture with an observed IKE_SA_INIT gets a
+    confident `False` here. Only a capture with no phase-1 exchange
+    observed at all (no IKE traffic, or an IKEv1 capture that never
+    reached Main Mode or Aggressive Mode) gets no claim.
     """
-    aggressive_messages = [
+    aggressive_messages = tuple(
+        m for m in parsed.messages if m.major_version == 1 and m.exchange_type == IKEV1_EXCHANGE_TYPE_AGGRESSIVE
+    )
+    if aggressive_messages:
+        return Claim(
+            field="ike.aggressive_mode",
+            value=True,
+            tier=Tier.OBSERVED,
+            confidence=1.0,
+            method="ike_parse.extract_ikev1_aggressive_mode_claim",
+            evidence=tuple(m.frame_no for m in aggressive_messages),
+            caveats=(
+                "IKEv1 Aggressive Mode exposes the peer identity (and, with PSK "
+                "authentication, a hash usable for offline dictionary attacks) in the "
+                "first two unencrypted messages, unlike Main Mode",
+            ),
+        )
+
+    phase1_messages = tuple(
         m
         for m in parsed.messages
-        if m.major_version == 1 and m.exchange_type == IKEV1_EXCHANGE_TYPE_AGGRESSIVE
-    ]
-    if not aggressive_messages:
+        if (m.major_version == 2 and m.exchange_type == EXCHANGE_TYPE_IKE_SA_INIT)
+        or (m.major_version == 1 and m.exchange_type == IKEV1_EXCHANGE_TYPE_MAIN_MODE)
+    )
+    if not phase1_messages:
         return None
+
+    if any(m.major_version == 2 for m in phase1_messages):
+        caveat = "IKEv2 has no Aggressive Mode exchange type at all — structurally not applicable"
+    else:
+        caveat = "IKEv1 Main Mode observed, not Aggressive Mode"
+
     return Claim(
         field="ike.aggressive_mode",
-        value=True,
+        value=False,
         tier=Tier.OBSERVED,
         confidence=1.0,
         method="ike_parse.extract_ikev1_aggressive_mode_claim",
-        evidence=tuple(m.frame_no for m in aggressive_messages),
-        caveats=(
-            "IKEv1 Aggressive Mode exposes the peer identity (and, with PSK "
-            "authentication, a hash usable for offline dictionary attacks) in the "
-            "first two unencrypted messages, unlike Main Mode",
-        ),
+        evidence=tuple(m.frame_no for m in phase1_messages),
+        caveats=(caveat,),
     )

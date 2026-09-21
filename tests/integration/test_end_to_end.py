@@ -197,6 +197,10 @@ class TestCaptureCoverage:
         assert coverage.ike_sa_init_request_observed is True
         assert coverage.ike_sa_init_response_observed is True
         assert coverage.packets_skipped == skipped
+        # Phase 6c: recorded once per run, alongside everything else this
+        # dataclass already exists to hold — see its own docstring.
+        assert coverage.tshark_version
+        assert coverage.tshark_version[0].isdigit()
 
     def test_snaplen_truncated_capture_reports_incomplete_ike_sa_init(self):
         path = str(CAPTURES / "ikev2-decrypt-aes256gcm16_snaplen.pcap")

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from ipsec_analyzer.core.claims import Tier
@@ -14,6 +16,8 @@ from ipsec_analyzer.inference.notify_posture import (
     classify_downgrade_protection_state,
 )
 from ipsec_analyzer.synth.synth_ike import synth_downgrade_prevention_posture, synth_ike_sa_init
+
+CAPTURES = Path(__file__).resolve().parent.parent.parent / "captures"
 
 
 def _assess_from_exchange(exchange, dh_groups=None):
@@ -302,6 +306,65 @@ class TestPartialObservationIsACoverageGapNotAFinding:
         pq_claim = next(c for c in claims if c.field == "ike_sa_init.hybrid_pq_exposed")
         assert ppk_claim.tier is Tier.OBSERVED and ppk_claim.value is False
         assert pq_claim.tier is Tier.OBSERVED and pq_claim.value is False
+
+
+class TestOneHalfMissingFromARealTruncatedCapture:
+    """Phase 6a closeout review, item 1b: the existing real-capture
+    truncation tests (tests/integration/test_end_to_end.py) only prove
+    the *pipeline wrapper* (`assess_notify_posture_from_capture`) skips
+    calling `assess_notify_posture` at all when BOTH halves are missing
+    — `ikev2-decrypt-aes256gcm16_snaplen.pcap` truncates every frame, and
+    `ikev2-decrypt-aes256gcm16_truncated.pcap`'s file-level cut happens
+    late enough that both IKE_SA_INIT messages survive intact. Neither
+    exercises `assess_notify_posture` itself with exactly one side real
+    and one side `None`, from real parser output.
+
+    `ikev2-decrypt-aes256gcm16_missing_response.pcap` (new fixture, see
+    captures/FETCH.md) closes that gap: `editcap -r` keeps every frame of
+    the original ground-truth capture except frame 2 (the IKE_SA_INIT
+    response), so the request is fully captured and real, and the
+    response is genuinely absent — not truncated-within-frame, entirely
+    missing-the-frame, the same shape a between-frames file cut produces
+    when it happens to land between the two IKE_SA_INIT messages instead
+    of after both of them.
+    """
+
+    def test_missing_response_frame_drives_a_real_not_observable_result(self):
+        from ipsec_analyzer.protocol.ike_parse import notify_posture_inputs, parse_ike_messages
+
+        parsed = parse_ike_messages(str(CAPTURES / "ikev2-decrypt-aes256gcm16_missing_response.pcap"))
+        inputs = notify_posture_inputs(parsed)
+        assert inputs is not None, "the request half is real and fully captured — must not short-circuit to None"
+        assert inputs["request_notify_types"], "the request's real notify types must survive parsing"
+        assert inputs["response_notify_types"] is None, "the response frame was excised entirely"
+
+        claims = assess_notify_posture(**inputs)
+
+        posture = next(c for c in claims if c.field == "ike_sa_init.downgrade_protection_state")
+        assert posture.tier is Tier.NOT_OBSERVABLE
+        assert posture.value is None
+        assert any("response" in caveat for caveat in posture.caveats), (
+            "the caveat must name which side is missing"
+        )
+        assert "ike_sa_init.downgrade_exposure_severity" not in {c.field for c in claims}, (
+            "no severity may be graded from an unknown posture"
+        )
+
+    def test_the_observed_request_half_is_still_reported_positively(self):
+        # Presence found in the half that WAS captured is still decisive
+        # (see the module's own "presence is still reported positively"
+        # rule) — this real capture's request half carries real notify
+        # types, none of which happen to be PPK/hybrid-PQ, so both
+        # presence claims should read cleanly False-from-NOT_OBSERVABLE
+        # (not confirmable absent the other half) rather than a
+        # fabricated confident False.
+        from ipsec_analyzer.protocol.ike_parse import notify_posture_inputs, parse_ike_messages
+
+        parsed = parse_ike_messages(str(CAPTURES / "ikev2-decrypt-aes256gcm16_missing_response.pcap"))
+        claims = assess_notify_posture(**notify_posture_inputs(parsed))
+        ppk_claim = next(c for c in claims if c.field == "ike_sa_init.ppk_in_use")
+        assert ppk_claim.tier is Tier.NOT_OBSERVABLE
+        assert ppk_claim.value is None
 
 
 class TestUnknownStateGuard:

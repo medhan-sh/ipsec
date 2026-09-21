@@ -46,6 +46,20 @@ the fixture the between-frames truncated capture above cannot exercise,
 since tshark simply omits an end-of-file-truncated frame rather than
 reporting it incomplete.
 
+`ikev2-decrypt-aes256gcm16_missing_response.pcap` (`8f05422ee4ee8f52b3ab0945d2f6eb1c6e3005b14c4c1bb3e31f4a90f6d23f6c`):
+locally derived, not fetched — `ikev2-decrypt-aes256gcm16.pcap` with
+`editcap -r` keeping every frame except frame 2 (the IKE_SA_INIT
+response). Added for Phase 6a's closeout review: the other two truncated
+fixtures above each produce a `notify_posture_inputs()` result where
+*both* halves of IKE_SA_INIT are missing or *neither* is — neither one
+actually drives `assess_notify_posture()` with exactly one side real and
+the other `None` from genuine parser output. This fixture does: the
+request (frame 1) is fully captured and real, and the response frame is
+excised entirely, not truncated within itself — the same shape a
+between-frames file cut produces when it happens to land between the two
+IKE_SA_INIT messages rather than after both. Used by
+`tests/inference/test_notify_posture.py::TestOneHalfMissingFromARealTruncatedCapture`.
+
 ## Wireshark wiki — real ESP data-plane traffic
 
 Source: `https://wiki.wireshark.org/uploads/dc5b30a117424e6ed21c726771a4006b/ipsec_ikev2+esp_aes-gcm_aes-ctr_aes-cbc.tgz`
@@ -128,6 +142,8 @@ cp /tmp/weberpcaps/IKEv1.pcap weberblog_ikev1.pcap
 cp /tmp/weberpcaps/IKEv2.pcap weberblog_ikev2.pcap
 
 python3 -c "d=open('ikev2-decrypt-aes256gcm16.pcap','rb').read(); open('ikev2-decrypt-aes256gcm16_truncated.pcap','wb').write(d[:len(d)//2])"
+docker run --rm -v "$PWD/..":/work -w /work ipsec-analyzer:dev \
+  editcap -r captures/ikev2-decrypt-aes256gcm16.pcap captures/ikev2-decrypt-aes256gcm16_missing_response.pcap 1 3-6
 # editcap ships with the project's Docker image (tshark package):
 docker run --rm -v "$PWD/..":/work -w /work ipsec-analyzer:dev \
   editcap -r captures/weberblog_ikev2.pcap captures/weberblog_ikev2_midsession.pcap 40-197

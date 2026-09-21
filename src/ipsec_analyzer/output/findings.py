@@ -1,16 +1,20 @@
 """findings.py — assembles the findings.json document (MVP_BUILD_PROMPT.md
-Phase 6; ARCHITECTURE.md §5's schema, frozen at "1.0" as of this phase).
+Phase 6; ARCHITECTURE.md §5's schema, amended twice since being frozen at
+"1.0" — see reports/phase-6a.md (`detail` removed) and reports/phase-6b.md
+(`passes[]` added, `detail` removal noted there as well) for the disclosed
+deviations from the original sketch.
 
 Deliberately imports nothing project-local — `tests/test_import_graph.py`
 has enforced `"output": set()` since before this package existed, matching
 ARCHITECTURE.md §1's dependency-rule paragraph verbatim: "`output` imports
 nothing but the findings document." Every `Claim`, `CandidateSet`,
-`Finding`, `CoverageGap` and `Verdict`/`AmbiguousVerdict` this module ever
-sees has already been turned into a plain, JSON-safe dict by `cli.py` —
-the one file in this project allowed to import from every layer at once
-(see its own docstring). This module's only job is bundling those
-already-plain pieces under `schema_version` and writing them to disk; it
-never imports `core.claims.Claim` or any other typed object.
+`Finding`, `PassedCheck`, `CoverageGap` and `Verdict`/`AmbiguousVerdict`
+this module ever sees has already been turned into a plain, JSON-safe
+dict by `cli.py` — the one file in this project allowed to import from
+every layer at once (see its own docstring). This module's only job is
+bundling those already-plain pieces under `schema_version` and writing
+them to disk; it never imports `core.claims.Claim` or any other typed
+object.
 """
 
 from __future__ import annotations
@@ -27,11 +31,13 @@ def assemble_findings_document(
     claims: list[dict],
     candidate_sets: list[dict],
     findings: list[dict],
+    passes: list[dict],
     gaps: list[dict],
     verdicts: list[dict],
 ) -> dict:
-    """Bundles already-plain pieces into the ARCHITECTURE.md §5 shape.
-    Takes plain dicts/lists, not typed objects — see module docstring.
+    """Bundles already-plain pieces into the ARCHITECTURE.md §5 shape
+    (amended — see module docstring). Takes plain dicts/lists, not typed
+    objects — see module docstring.
     """
     return {
         "schema_version": SCHEMA_VERSION,
@@ -40,6 +46,7 @@ def assemble_findings_document(
         "claims": claims,
         "candidate_sets": candidate_sets,
         "findings": findings,
+        "passes": passes,
         "gaps": gaps,
         "verdicts": verdicts,
     }

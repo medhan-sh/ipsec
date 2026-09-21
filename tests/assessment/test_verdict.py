@@ -70,6 +70,28 @@ class TestAmbiguousVerdicts:
         assert verdict.surviving_false == frozenset({weak_suite})
         assert str(len(strong_suites)) in verdict.basis or "2" in verdict.basis
 
+    def test_ambiguous_verdict_carries_confidence_and_basis_tier(self):
+        # Phase 6b review fix #4a: these were previously only ever set on
+        # the unanimous (Verdict) branch — an AmbiguousVerdict silently
+        # had neither field at all. Confidence is 1.0 for the same reason
+        # it is on Verdict: disagreement is itself a certain fact about
+        # the candidate set, not a 50/50 guess.
+        strong_suite = next(iter(_STRONG_AEAD_16_GROUP))
+        weak_suite = next(iter(_WEAK_64BIT_BLOCK_SUITES))
+        cs = _candidate_set({strong_suite, weak_suite})
+        verdict = lift_verdict(cs, "confidentiality_acceptable", narrowing_tiers=[Tier.INFERRED_SIDE_CHANNEL])
+        assert isinstance(verdict, AmbiguousVerdict)
+        assert verdict.confidence == 1.0
+        assert verdict.basis_tier is Tier.INFERRED_SIDE_CHANNEL
+
+    def test_ambiguous_verdict_basis_tier_defaults_to_not_observable(self):
+        strong_suite = next(iter(_STRONG_AEAD_16_GROUP))
+        weak_suite = next(iter(_WEAK_64BIT_BLOCK_SUITES))
+        cs = _candidate_set({strong_suite, weak_suite})
+        verdict = lift_verdict(cs, "confidentiality_acceptable")
+        assert isinstance(verdict, AmbiguousVerdict)
+        assert verdict.basis_tier is Tier.NOT_OBSERVABLE
+
 
 class TestEmptyCandidateSet:
     def test_empty_surviving_set_returns_none(self):

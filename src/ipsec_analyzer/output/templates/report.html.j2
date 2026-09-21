@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IPsec Analyzer Report — {{ doc.capture.filename }}</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #5f6368;
+    --border: #dcdcdc;
+    --panel: #f7f7f8;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 0 0 4rem 0;
+    line-height: 1.5;
+  }
+  header {
+    background: #14213d;
+    color: #ffffff;
+    padding: 1.5rem 2rem;
+  }
+  header h1 { margin: 0 0 0.25rem 0; font-size: 1.4rem; }
+  header .meta { color: #c9d3e8; font-size: 0.85rem; font-family: var(--mono); }
+  header .meta span { margin-right: 1.5rem; display: inline-block; }
+  .truncated-banner {
+    background: #7a3b00;
+    color: #fff;
+    padding: 0.6rem 2rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 0 2rem; }
+  section { margin-top: 2.5rem; }
+  h2 { font-size: 1.1rem; border-bottom: 2px solid var(--border); padding-bottom: 0.4rem; }
+  h3 { font-size: 0.95rem; margin-bottom: 0.4rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-top: 0.75rem; }
+  th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  tr:last-child td { border-bottom: none; }
+  code, .mono { font-family: var(--mono); font-size: 0.85em; }
+  .badge {
+    display: inline-block;
+    padding: 0.1rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+  }
+  .frame-link {
+    display: inline-block;
+    margin: 0 2px;
+    padding: 0 5px;
+    border-radius: 4px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    text-decoration: none;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+  }
+  .frame-link:hover { background: #e8e8ea; }
+  .coverage-headline { font-size: 0.95rem; color: var(--muted); margin: 0.5rem 0 0 0; }
+  .coverage-headline strong { color: var(--fg); }
+  .counter-row { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+  .counter {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.9rem 1.2rem;
+    min-width: 130px;
+  }
+  .counter .n { font-size: 1.6rem; font-weight: 700; display: block; }
+  .counter .label { font-size: 0.78rem; color: var(--muted); }
+  .legend-row { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.6rem; }
+  .legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; }
+  .swatch { width: 0.85rem; height: 0.85rem; border-radius: 3px; display: inline-block; }
+  .empty-note { color: var(--muted); font-style: italic; padding: 0.75rem 0; }
+  .caveat { color: var(--muted); font-size: 0.82rem; font-style: italic; margin-top: 0.15rem; }
+  .indist-group {
+    background: var(--panel);
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    margin: 0.4rem 0;
+    font-size: 0.85rem;
+  }
+  .sa-block { border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; margin-top: 1rem; }
+  .sa-block h3 { margin-top: 0; font-family: var(--mono); }
+  .verdict-unanimous { border-left: 4px solid #5fb87a; padding-left: 0.75rem; margin: 0.5rem 0; }
+  .verdict-ambiguous { border-left: 4px solid #e37400; padding-left: 0.75rem; margin: 0.5rem 0; }
+  .suite-set { font-family: var(--mono); font-size: 0.82rem; }
+  details { margin-top: 0.75rem; }
+  summary { cursor: pointer; font-weight: 600; color: var(--muted); font-size: 0.85rem; }
+  footer { max-width: 980px; margin: 3rem auto 0 auto; padding: 1rem 2rem; color: var(--muted); font-size: 0.78rem; border-top: 1px solid var(--border); }
+  a { color: #1a56c4; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>IPsec Analyzer Report</h1>
+  <div class="meta">
+    <span>file: {{ doc.capture.filename }}</span>
+    <span>sha256: {{ doc.capture.sha256[:16] }}&hellip;</span>
+    <span>packets: {{ doc.capture.packet_count }}</span>
+    <span>duration: {{ doc.capture.duration_s }}s</span>
+  </div>
+</header>
+
+{% if doc.capture.truncated %}
+<div class="truncated-banner">
+  ⚠ This capture appears truncated or incompletely captured — coverage gaps below may reflect missing data, not the absence of a feature on the wire.
+</div>
+{% endif %}
+
+<main>
+
+<section id="coverage">
+  <h2>Coverage</h2>
+  <p class="coverage-headline">
+    {{ doc.coverage.checks_total }} rules total —
+    <strong>{{ doc.coverage.checks_found }}</strong> found,
+    <strong>{{ doc.coverage.checks_passed }}</strong> passed,
+    <strong>{{ doc.coverage.checks_gap }}</strong> gaps
+  </p>
+  <div class="counter-row">
+    <div class="counter"><span class="n">{{ doc.coverage.checks_total }}</span><span class="label">rules total</span></div>
+    <div class="counter"><span class="n">{{ doc.coverage.checks_found }}</span><span class="label">found</span></div>
+    <div class="counter"><span class="n">{{ doc.coverage.checks_passed }}</span><span class="label">passed</span></div>
+    <div class="counter"><span class="n">{{ doc.coverage.checks_gap }}</span><span class="label">coverage gaps</span></div>
+  </div>
+  <table>
+    <tr><th>Signal</th><th>Value</th></tr>
+    <tr><td>tshark exited cleanly</td><td>{{ doc.coverage.tshark_exit_clean }}</td></tr>
+    <tr><td>packets skipped at ingest</td><td>{{ doc.coverage.packets_skipped }}</td></tr>
+    <tr><td>IKE_SA_INIT request observed</td><td>{{ doc.coverage.ike_sa_init_request_observed }}</td></tr>
+    <tr><td>IKE_SA_INIT response observed</td><td>{{ doc.coverage.ike_sa_init_response_observed }}</td></tr>
+    <tr><td>ESP tunnels found</td><td>{{ doc.coverage.esp_tunnels_total }}</td></tr>
+    <tr><td>ESP tunnels missing a direction</td><td>{{ doc.coverage.esp_tunnels_missing_a_direction }}</td></tr>
+  </table>
+</section>
+
+<section id="legend">
+  <h2>Provenance tier legend</h2>
+  <div class="legend-row">
+    {% for tier in tier_order %}
+    <div class="legend-item"><span class="swatch" style="background:{{ tier_colors[tier] }}"></span>{{ tier }}</div>
+    {% endfor %}
+  </div>
+  <h2 style="margin-top:1.5rem;">Severity legend</h2>
+  <div class="legend-row">
+    {% for sev, color in severity_colors.items() %}
+    <div class="legend-item"><span class="swatch" style="background:{{ color }}"></span>{{ sev }}</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="findings">
+  <h2>Findings ({{ doc.findings|length }})</h2>
+  {% if doc.findings %}
+  <table>
+    <tr><th>Severity</th><th>Title</th><th>Category</th><th>Tier</th><th>Frames</th><th>Details</th></tr>
+    {% for f in doc.findings %}
+    <tr>
+      <td><span class="badge" style="background:{{ severity_colors.get(f.severity, '#5f6368') }}">{{ f.severity }}</span></td>
+      <td>{{ f.title }}</td>
+      <td>{{ f.category }}</td>
+      <td><span class="badge" style="background:{{ tier_colors.get(f.tier, '#5f6368') }}">{{ f.tier }}</span></td>
+      <td>
+        {% for frame in f.evidence %}<a class="frame-link" href="#frame-{{ frame }}">{{ frame }}</a>{% endfor %}
+      </td>
+      <td>
+        {{ f.recommendation }}
+        {% if f.references %}<div class="caveat">Ref: {{ f.references|join(", ") }}</div>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty-note">No findings triggered by this capture's observed claims.</div>
+  {% endif %}
+</section>
+
+<section id="passes">
+  <h2>Checks passed ({{ doc.passes|length }})</h2>
+  {% if doc.passes %}
+  <table>
+    <tr><th>Check</th><th>Tier</th><th>Frames</th></tr>
+    {% for p in doc.passes %}
+    <tr>
+      <td>{{ p.title }}</td>
+      <td><span class="badge" style="background:{{ tier_colors.get(p.tier, '#5f6368') }}">{{ p.tier }}</span></td>
+      <td>
+        {% for frame in p.evidence %}<a class="frame-link" href="#frame-{{ frame }}">{{ frame }}</a>{% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty-note">No rule was both assessable and clean on this capture.</div>
+  {% endif %}
+</section>
+
+<section id="gaps">
+  <h2>Coverage gaps ({{ doc.gaps|length }})</h2>
+  {% if doc.gaps %}
+  <table>
+    <tr><th>Rule</th><th>Reason</th><th>Gap kind</th><th>Required tier</th><th>Actual tier</th></tr>
+    {% for g in doc.gaps %}
+    <tr>
+      <td>{{ g.title }}</td>
+      <td>{{ g.reason }}</td>
+      <td>{{ gap_kind_labels.get(g.gap_kind, g.gap_kind) }}</td>
+      <td><span class="badge" style="background:{{ tier_colors.get(g.required_tier, '#5f6368') }}">{{ g.required_tier }}</span></td>
+      <td><span class="badge" style="background:{{ tier_colors.get(g.actual_tier, '#5f6368') }}">{{ g.actual_tier }}</span></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty-note">No coverage gaps — every rule was assessable.</div>
+  {% endif %}
+</section>
+
+<section id="verdicts">
+  <h2>Lifted risk verdicts ({{ doc.verdicts|length }})</h2>
+  {% if doc.verdicts %}
+    {% for v in doc.verdicts %}
+      {% if v.ambiguous %}
+      <div class="verdict-ambiguous">
+        <strong>{{ v.predicate }}</strong> ({{ v.sa_id }}) — <em>ambiguous</em>: candidates disagree, at confidence {{ v.confidence }}
+        <span class="badge" style="background:{{ tier_colors.get(v.basis_tier, '#5f6368') }}">basis: {{ v.basis_tier }}</span>
+        <div class="suite-set">Agree TRUE: {{ v.surviving_true|join(", ") }}</div>
+        <div class="suite-set">Agree FALSE: {{ v.surviving_false|join(", ") }}</div>
+        <div class="caveat">{{ v.basis }}</div>
+      </div>
+      {% else %}
+      <div class="verdict-unanimous">
+        <strong>{{ v.predicate }}</strong> ({{ v.sa_id }}) — <strong>{{ v.outcome }}</strong> at confidence {{ v.confidence }}
+        <span class="badge" style="background:{{ tier_colors.get(v.basis_tier, '#5f6368') }}">basis: {{ v.basis_tier }}</span>
+        <div class="caveat">{{ v.basis }}</div>
+      </div>
+      {% endif %}
+    {% endfor %}
+  {% else %}
+  <div class="empty-note">No ESP candidate set survived narrowing in this capture — no risk verdict was lifted (see Candidate sets below for why, e.g. no ESP data-plane traffic was observed at all).</div>
+  {% endif %}
+</section>
+
+<section id="candidate-sets">
+  <h2>ESP candidate sets ({{ doc.candidate_sets|length }})</h2>
+  {% if doc.candidate_sets %}
+    {% for cs in doc.candidate_sets %}
+    <div class="sa-block">
+      <h3>{{ cs.sa_id }}</h3>
+      <p>{{ cs.surviving|length }} of {{ cs.universe_size }} candidate suites survive:</p>
+      <div class="suite-set">{{ cs.surviving|join(", ") if cs.surviving else "(none survive — every candidate was eliminated)" }}</div>
+
+      {% if cs.indistinguishable %}
+      <p style="margin-top:0.75rem;"><strong>Explicitly indistinguishable by this method</strong> (share identical wire framing):</p>
+      {% for group in cs.indistinguishable %}
+      <div class="indist-group">{{ group|join(", ") }}</div>
+      {% endfor %}
+      {% endif %}
+
+      <details>
+        <summary>Eliminated candidates ({{ cs.eliminated|length }})</summary>
+        <table>
+          <tr><th>Suite</th><th>Reason</th></tr>
+          {% for suite_id, reason in cs.eliminated %}
+          <tr><td class="mono">{{ suite_id }}</td><td>{{ reason }}</td></tr>
+          {% endfor %}
+        </table>
+      </details>
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="empty-note">No ESP data-plane traffic was observed in this capture — nothing to narrow. (This capture may be an IKE-handshake-only vector; see the coverage section above.)</div>
+  {% endif %}
+</section>
+
+<section id="claims">
+  <h2>Claims ({{ doc.claims|length }})</h2>
+  <details>
+    <summary>Show all {{ doc.claims|length }} claims</summary>
+    {% if doc.claims %}
+    <table>
+      <tr><th>Field</th><th>Value</th><th>Tier</th><th>Confidence</th><th>Method</th><th>Frames</th></tr>
+      {% for c in doc.claims %}
+      <tr>
+        <td class="mono">{{ c.field }}</td>
+        <td class="mono">
+          {% if c.value is mapping and "name" in c.value %}
+            {{ c.value.name }}
+            <span class="caveat" style="margin:0;">(id {{ c.value.transform_id }}{% if c.value.key_length %}, {{ c.value.key_length }}-bit{% endif %})</span>
+          {% elif c.value is none %}
+            —
+          {% else %}
+            {{ c.value }}
+          {% endif %}
+        </td>
+        <td><span class="badge" style="background:{{ tier_colors.get(c.tier, '#5f6368') }}">{{ c.tier }}</span></td>
+        <td>{{ c.confidence if c.confidence is not none else "—" }}</td>
+        <td class="mono">{{ c.method }}</td>
+        <td>{% for frame in c.evidence %}<a class="frame-link" href="#frame-{{ frame }}">{{ frame }}</a>{% endfor %}</td>
+      </tr>
+      {% if c.caveats %}
+      <tr><td></td><td colspan="5" class="caveat">{{ c.caveats|join(" — ") }}</td></tr>
+      {% endif %}
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty-note">No claims were produced for this capture.</div>
+    {% endif %}
+  </details>
+</section>
+
+<section id="frame-index">
+  <h2>Frame evidence index</h2>
+  <details>
+    <summary>Show all {{ frame_index|length }} cited frames</summary>
+    {% if frame_index %}
+    <table>
+      <tr><th>Frame</th><th>Cited by</th></tr>
+      {% for entry in frame_index %}
+      <tr id="frame-{{ entry.frame }}">
+        <td class="mono">{{ entry.frame }}</td>
+        <td>{{ entry.citations|join("; ") }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty-note">No claims or findings cite a frame number.</div>
+    {% endif %}
+  </details>
+</section>
+
+</main>
+
+<footer>
+  Generated by ipsec-analyzer · findings.json schema {{ doc.schema_version }} · report opens standalone, no network access required.
+</footer>
+
+</body>
+</html>

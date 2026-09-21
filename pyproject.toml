@@ -14,6 +14,9 @@ dev = [
     "pytest",
 ]
 
+[project.scripts]
+ipsec-analyze = "ipsec_analyzer.cli:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
@@ -27,3 +30,13 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+# Phase 6c: non-.py files a proper `pip install` doesn't bundle unless
+# told to — rules.yaml (assessment/rules/schema.py's load_default_rules())
+# and the Jinja2 report template (output/report.py) are both read from
+# disk at runtime, not embedded in source. Missing either one is a
+# FileNotFoundError only once the package is actually installed rather
+# than mounted, which the previous (mount-based) Dockerfile never exposed.
+"ipsec_analyzer.assessment.rules" = ["rules.yaml"]
+"ipsec_analyzer.output" = ["templates/*.j2"]

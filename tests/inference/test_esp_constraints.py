@@ -198,6 +198,29 @@ class TestEndToEndEngine:
         # never split apart by elimination.
         assert group <= result.candidate_set.surviving
 
+    def test_indistinguishable_groups_are_returned_in_a_fixed_sorted_order(self):
+        # Phase 6a closeout review: this used to fall out of dict-insertion
+        # order following a bare frozenset iteration, which is per-process
+        # hash-seed-dependent — invisible to `==` on the group contents
+        # themselves, but a real bug once the result is serialized
+        # positionally (caught via a JSON golden-fixture diff, see
+        # tests/test_golden_findings.py). Note this can't be reproduced by
+        # comparing two constructions within one test process: frozenset
+        # iteration order for a fixed set of elements is constant within a
+        # process regardless of how the frozenset was built (it depends on
+        # element hashes, not insertion order), so only a genuine
+        # cross-process hash-seed change exposes the old bug — verified by
+        # hand for this fix (see the module's own amendment note). What
+        # this test pins down instead is the deterministic *output*
+        # property the fix actually guarantees: groups sorted by their own
+        # sorted member tuple, independent of any hash order.
+        from ipsec_analyzer.inference.esp_constraints.engine import _indistinguishable_groups
+
+        groups = _indistinguishable_groups(frozenset(SUITE_FRAMINGS))
+        assert groups, "expected at least one indistinguishable group in the full suite table"
+        sorted_group_keys = [sorted(g) for g in groups]
+        assert sorted_group_keys == sorted(sorted_group_keys)
+
     def test_eliminated_by_derivations_are_human_readable(self):
         framing = SUITE_FRAMINGS["AES-128-GCM-16"]
         flow = synth_esp_flow(framing, count=120, forward_run=8, reverse_run=1)
@@ -253,10 +276,38 @@ class TestNullEncryptionElimination:
         assert result.null_encryption_claim.value is True
         assert result.null_encryption_claim.tier is Tier.INFERRED_SIDE_CHANNEL
 
-    def test_null_encryption_claim_is_none_when_null_is_eliminated(self):
+    def test_null_encryption_claim_is_false_when_null_is_eliminated_with_evidence(self):
+        # Phase 6b review fix: this channel actually ran here (NULL-ENC
+        # shares AES-128-GCM-16's (counter, granularity=4) framing, so it
+        # isn't pre-excluded by the granularity/family step) and
+        # eliminated NULL-ENC via the IP-header check — that's a check
+        # that ran and came back negative, not "never checked", so it
+        # must be a Claim with value False, not an absent claim.
         framing = SUITE_FRAMINGS["AES-128-GCM-16"]
         flow = synth_esp_flow(framing, count=120, forward_run=8, reverse_run=1)
         result = analyze_esp_flow(_observations_from_flow(flow))
+        assert result.null_encryption_claim is not None
+        assert result.null_encryption_claim.value is False
+        assert result.null_encryption_claim.tier is Tier.INFERRED_SIDE_CHANNEL
+        assert result.null_encryption_claim.confidence == 1.0
+
+    def test_null_encryption_claim_is_none_when_null_never_reached_this_channel(self):
+        # Contrast case: granularity here identifies (cbc, 16) framing,
+        # which excludes NULL-ENC (counter, 4) via the family/granularity
+        # step *before* the NULL-encryption channel ever runs — nothing
+        # left for it to check, so this must stay a genuine absence (None),
+        # not a fabricated False attributed to a check that never ran.
+        framing = SUITE_FRAMINGS["AES-128-CBC + HMAC-SHA1-96"]
+        flow = synth_esp_flow(framing, count=120, forward_run=8, reverse_run=1)
+        result = analyze_esp_flow(_observations_from_flow(flow))
+        assert result.granularity_claim.value == 16
+        null_ids = self._null_suite_ids()
+        assert not (null_ids & result.candidate_set.surviving)
+        eliminated_ids = {sid for sid, _ in result.candidate_set.eliminated_by}
+        assert null_ids <= eliminated_ids
+        # None of NULL-ENC's elimination reasons came from the payload check.
+        null_reasons = [reason for sid, reason in result.candidate_set.eliminated_by if sid in null_ids]
+        assert all("ciphertext offset" not in reason for reason in null_reasons)
         assert result.null_encryption_claim is None
 
     def test_no_payload_evidence_still_eliminates_null_by_default(self):
@@ -268,6 +319,11 @@ class TestNullEncryptionElimination:
         result = analyze_esp_flow(_observations_without_prefix(flow))
         assert result.candidate_set is not None
         assert not (self._null_suite_ids() & result.candidate_set.surviving)
+        # Phase 6b review fix: this channel ran (no payload evidence is
+        # itself a checked, negative outcome) and must say so as False,
+        # not silently drop the claim.
+        assert result.null_encryption_claim is not None
+        assert result.null_encryption_claim.value is False
 
     def test_insufficient_diversity_but_readable_payload_eliminates_null_with_reason(self):
         # Phase 5a review fix #6: confirms elimination-channel independence
