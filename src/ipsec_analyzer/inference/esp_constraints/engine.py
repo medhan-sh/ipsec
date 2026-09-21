@@ -62,7 +62,11 @@ from ipsec_analyzer.inference.esp_constraints.anchor_solver import (
     find_sustained_reverse_anchor,
     solve_icv_candidates,
 )
-from ipsec_analyzer.inference.esp_constraints.gcd_estimator import estimate_granularity
+from ipsec_analyzer.inference.esp_constraints.gcd_estimator import (
+    MIN_DISTINCT_VALUES,
+    VALID_GRANULARITIES,
+    estimate_granularity,
+)
 from ipsec_analyzer.inference.esp_constraints.tfc_gate import suspect_tfc_by_length_distribution
 
 # RFC 4303 §2.4: the ESP trailer is always exactly 2 bytes (Pad Length,
@@ -181,6 +185,13 @@ def _granularity_channel(wire_lengths: Sequence[int], evidence: tuple[int, ...])
     trusted. Returns the granularity Claim and the raw granularity value
     (None if either channel abstained), so callers can tell "abstained"
     from "succeeded" without re-deriving it from the Claim's tier.
+
+    The GCD estimator's two abstention branches get opposite remediation
+    advice (see gcd_estimator.py's module docstring and reports/phase-6d.md):
+    too few distinct lengths means re-capturing with more traffic diversity
+    can fix it; a GCD that lands off the valid lattice means it probably
+    won't — that's residue structure the estimator won't paper over with a
+    nearest-match guess (invariant 6).
     """
     if suspect_tfc_by_length_distribution(wire_lengths):
         return (
@@ -196,8 +207,9 @@ def _granularity_channel(wire_lengths: Sequence[int], evidence: tuple[int, ...])
             None,
         )
 
-    granularity = estimate_granularity(wire_lengths)
-    if granularity is None:
+    estimate = estimate_granularity(wire_lengths)
+
+    if estimate.branch == "insufficient_distinct_values":
         return (
             Claim(
                 field="esp.granularity",
@@ -207,10 +219,26 @@ def _granularity_channel(wire_lengths: Sequence[int], evidence: tuple[int, ...])
                 method="esp_constraints.gcd_estimator",
                 evidence=evidence,
                 caveats=(
-                    "GCD of pairwise E differences did not land in {4, 8, 16}, or fewer "
-                    "than 8 distinct E values were observed — possible TFC padding or "
-                    "insufficient data; not interpolated or rounded to the nearest valid "
-                    "granularity",
+                    f"only {estimate.distinct_count} distinct ESP payload lengths observed; "
+                    f"at least {MIN_DISTINCT_VALUES} are needed for a GCD estimate",
+                ),
+            ),
+            None,
+        )
+
+    if estimate.branch == "off_lattice_gcd":
+        valid = "{" + ", ".join(str(g) for g in VALID_GRANULARITIES) + "}"
+        return (
+            Claim(
+                field="esp.granularity",
+                value=None,
+                tier=Tier.NOT_OBSERVABLE,
+                confidence=0.0,
+                method="esp_constraints.gcd_estimator",
+                evidence=evidence,
+                caveats=(
+                    f"GCD of pairwise E differences was {estimate.raw_gcd}, which is not in "
+                    f"{valid}; not rounded or interpolated to the nearest valid granularity",
                 ),
             ),
             None,
@@ -219,13 +247,13 @@ def _granularity_channel(wire_lengths: Sequence[int], evidence: tuple[int, ...])
     return (
         Claim(
             field="esp.granularity",
-            value=granularity,
+            value=estimate.granularity,
             tier=Tier.INFERRED_SIDE_CHANNEL,
             confidence=1.0,
             method="esp_constraints.gcd_estimator",
             evidence=evidence,
         ),
-        granularity,
+        estimate.granularity,
     )
 
 

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from ipsec_analyzer.core.claims import Tier
@@ -10,9 +12,18 @@ from ipsec_analyzer.inference.esp_constraints.engine import (
     EspPacketObservation,
     analyze_esp_flow,
 )
-from ipsec_analyzer.inference.esp_constraints.gcd_estimator import estimate_granularity
+from ipsec_analyzer.inference.esp_constraints.gcd_estimator import (
+    GranularityEstimate,
+    GranularityEstimateError,
+    estimate_granularity,
+)
 from ipsec_analyzer.inference.esp_constraints.tfc_gate import suspect_tfc_by_length_distribution
+from ipsec_analyzer.inference.pipeline import analyze_esp_tunnel
+from ipsec_analyzer.protocol.demux import demux
+from ipsec_analyzer.protocol.ingest import load_capture
 from ipsec_analyzer.synth.synth_esp import esp_wire_len, synth_esp_flow, synth_tfc_flow
+
+CAPTURES = Path(__file__).resolve().parent.parent.parent / "captures"
 
 
 def _observations_from_flow(flow):
@@ -34,25 +45,103 @@ class TestGcdEstimator:
     def test_recovers_correct_granularity_for_every_suite(self, suite_id):
         framing = SUITE_FRAMINGS[suite_id]
         flow = synth_esp_flow(framing, count=120)
-        g = estimate_granularity([p.wire_len for p in flow])
-        assert g == framing.pad_granularity
+        estimate = estimate_granularity([p.wire_len for p in flow])
+        assert estimate.granularity == framing.pad_granularity
+        assert estimate.branch == "resolved"
+        assert estimate.raw_gcd is None
 
     def test_fewer_than_8_distinct_values_abstains(self):
-        assert estimate_granularity([100] * 20) is None
+        estimate = estimate_granularity([100] * 20)
+        assert estimate.granularity is None
+        assert estimate.branch == "insufficient_distinct_values"
+        assert estimate.distinct_count == 1
+        assert estimate.raw_gcd is None
 
     def test_all_identical_lengths_abstains(self):
-        assert estimate_granularity([68]) is None
+        estimate = estimate_granularity([68])
+        assert estimate.granularity is None
+        assert estimate.branch == "insufficient_distinct_values"
+        assert estimate.distinct_count == 1
 
     def test_invalid_raw_gcd_abstains(self):
         # 9 distinct values whose pairwise differences share gcd=3, not in {4,8,16}
-        assert estimate_granularity([100, 103, 106, 109, 112, 115, 118, 121, 124]) is None
+        estimate = estimate_granularity([100, 103, 106, 109, 112, 115, 118, 121, 124])
+        assert estimate.granularity is None
+        assert estimate.branch == "off_lattice_gcd"
+        assert estimate.distinct_count == 9
+        assert estimate.raw_gcd == 3
 
     def test_never_returns_a_value_outside_valid_set(self):
         for suite_id in SUITE_FRAMINGS:
             framing = SUITE_FRAMINGS[suite_id]
             flow = synth_esp_flow(framing, count=120)
-            g = estimate_granularity([p.wire_len for p in flow])
-            assert g in (None, 4, 8, 16)
+            estimate = estimate_granularity([p.wire_len for p in flow])
+            assert estimate.granularity in (None, 4, 8, 16)
+
+    def test_unknown_branch_is_rejected_by_the_closed_vocabulary(self):
+        with pytest.raises(GranularityEstimateError):
+            GranularityEstimate(granularity=None, branch="bogus", distinct_count=0, raw_gcd=None)
+
+
+class TestGranularityAbstentionCaveats:
+    """engine.py's `_granularity_channel`, this pass: the two GCD
+    abstention branches need opposite remediation advice (see
+    reports/phase-6d.md), so the caveat must name which branch fired and
+    the actual observed numbers, not the old single disjunctive caveat
+    that couldn't distinguish them.
+    """
+
+    def test_insufficient_distinct_values_caveat_names_the_count(self):
+        observations = [EspPacketObservation(direction="forward", wire_len=68) for _ in range(20)]
+        result = analyze_esp_flow(observations)
+        assert result.granularity_claim.tier is Tier.NOT_OBSERVABLE
+        assert result.granularity_claim.value is None
+        assert len(result.granularity_claim.caveats) == 1
+        caveat = result.granularity_claim.caveats[0]
+        assert "only 1 distinct" in caveat
+        assert "at least 8" in caveat
+
+    def test_off_lattice_gcd_caveat_names_the_rejected_gcd(self):
+        # 9 distinct values whose pairwise differences share gcd=3, not in {4, 8, 16}.
+        lengths = [100, 103, 106, 109, 112, 115, 118, 121, 124]
+        observations = [EspPacketObservation(direction="forward", wire_len=n) for n in lengths]
+        result = analyze_esp_flow(observations)
+        assert result.granularity_claim.tier is Tier.NOT_OBSERVABLE
+        assert result.granularity_claim.value is None
+        assert len(result.granularity_claim.caveats) == 1
+        caveat = result.granularity_claim.caveats[0]
+        assert "was 3" in caveat
+        assert "4, 8, 16" in caveat
+        assert "not rounded" in caveat
+
+
+class TestGranularityAbstentionOnRealCapture:
+    """Branch A on real data: `captures/weberblog_ikev2.pcap` is expected
+    to abstain for insufficient diversity, not land off-lattice — but per
+    TASK-gcd-abstention-reason.md, `captures/FETCH.md`'s "2 distinct wire
+    lengths" describes distinct lengths *on the wire*, which is not
+    necessarily what the estimator sees once the 8-byte SPI+sequence
+    header is subtracted (see `inference/pipeline.py`'s
+    `_esp_record_to_observation`). Observed by actually running this
+    capture through the real pipeline: every one of its four ESP tunnels
+    lands on exactly 1 distinct post-header length, not 2.
+    """
+
+    def test_weberblog_ikev2_hits_the_insufficient_distinct_values_branch(self):
+        records = load_capture(str(CAPTURES / "weberblog_ikev2.pcap"))
+        demux_result = demux(records)
+        tunnels = demux_result.esp_tunnels()
+        assert tunnels, "expected at least one ESP tunnel in this capture"
+
+        for tunnel in tunnels:
+            result = analyze_esp_tunnel(tunnel)
+            assert result.granularity_claim.tier is Tier.NOT_OBSERVABLE
+            assert result.granularity_claim.value is None
+            assert len(result.granularity_claim.caveats) == 1
+            caveat = result.granularity_claim.caveats[0]
+            # Observed, not assumed: 1 distinct post-header length per tunnel.
+            assert "only 1 distinct" in caveat
+            assert "at least 8" in caveat
 
 
 class TestTfcGate:

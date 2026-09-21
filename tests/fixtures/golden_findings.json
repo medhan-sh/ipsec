@@ -658,7 +658,7 @@
     },
     {
       "caveats": [
-        "GCD of pairwise E differences did not land in {4, 8, 16}, or fewer than 8 distinct E values were observed \u2014 possible TFC padding or insufficient data; not interpolated or rounded to the nearest valid granularity"
+        "only 1 distinct ESP payload lengths observed; at least 8 are needed for a GCD estimate"
       ],
       "confidence": null,
       "evidence": [
@@ -714,7 +714,7 @@
     },
     {
       "caveats": [
-        "GCD of pairwise E differences did not land in {4, 8, 16}, or fewer than 8 distinct E values were observed \u2014 possible TFC padding or insufficient data; not interpolated or rounded to the nearest valid granularity"
+        "only 1 distinct ESP payload lengths observed; at least 8 are needed for a GCD estimate"
       ],
       "confidence": null,
       "evidence": [
@@ -762,7 +762,7 @@
     },
     {
       "caveats": [
-        "GCD of pairwise E differences did not land in {4, 8, 16}, or fewer than 8 distinct E values were observed \u2014 possible TFC padding or insufficient data; not interpolated or rounded to the nearest valid granularity"
+        "only 1 distinct ESP payload lengths observed; at least 8 are needed for a GCD estimate"
       ],
       "confidence": null,
       "evidence": [
@@ -922,7 +922,7 @@
     },
     {
       "caveats": [
-        "GCD of pairwise E differences did not land in {4, 8, 16}, or fewer than 8 distinct E values were observed \u2014 possible TFC padding or insufficient data; not interpolated or rounded to the nearest valid granularity"
+        "only 1 distinct ESP payload lengths observed; at least 8 are needed for a GCD estimate"
       ],
       "confidence": null,
       "evidence": [
