@@ -256,7 +256,8 @@ def analyze_capture(pcap_path: str) -> dict:
                 verdict_dicts.append(_verdict_to_dict(sa_id, verdict))
 
     ledger = ClaimLedger.from_claims(claims)
-    assessment_result = evaluate_rules(ledger, load_default_rules())
+    rules = load_default_rules()
+    assessment_result = evaluate_rules(ledger, rules)
 
     # "Truncated" is a fact about whether the capture *file* was cut
     # short (tshark's own exit code, an ingest-level skip, or a message
@@ -306,7 +307,31 @@ def analyze_capture(pcap_path: str) -> dict:
         passes=[_pass_to_dict(p) for p in assessment_result.passes],
         gaps=[_gap_to_dict(g) for g in assessment_result.gaps],
         verdicts=verdict_dicts,
+        # The rule catalogue, keyed by id: per-rule text that does not
+        # vary with the capture. Carried once at the top level rather than
+        # copied onto every finding/pass/gap that cites the rule — see
+        # output/findings.py's own amendment note.
+        rules={rule.id: _rule_to_dict(rule) for rule in rules},
     )
+
+
+def _rule_to_dict(rule) -> dict:
+    """The capture-independent half of a rule: what the check means, and
+    what it cites. Deliberately excludes `condition`/`target`/`min_tier` —
+    those describe how the engine evaluates the rule, not what a reader
+    needs, and putting the machinery in the document would invite a
+    consumer to reimplement evaluation from it.
+    """
+    return {
+        "title": rule.title,
+        "passed_title": rule.passed_title,
+        "explanation": rule.explanation,
+        "severity": rule.severity,
+        "category": rule.category,
+        "references": list(rule.references),
+        "recommendation": rule.recommendation,
+        "gap_kind": rule.gap_kind,
+    }
 
 
 def _default_sibling_path(capture: str, suffix: str) -> str:

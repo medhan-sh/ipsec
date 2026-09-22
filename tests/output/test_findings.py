@@ -13,6 +13,7 @@ def _minimal_document(**overrides):
         passes=[],
         gaps=[],
         verdicts=[],
+        rules={},
     )
     base.update(overrides)
     return assemble_findings_document(**base)
@@ -28,10 +29,13 @@ class TestAssembleFindingsDocument:
         # Amended (Phase 6b): `passes[]` added alongside `findings[]`/
         # `gaps[]` — a rule that was checked and came back clean is a
         # third outcome, not silence. See reports/phase-6b.md.
+        # Amended (explanations pass): `rules` — the capture-independent
+        # per-rule text, carried once at the top level rather than copied
+        # onto every result that cites the rule. See reports/phase-6f.md.
         doc = _minimal_document()
         assert set(doc) == {
             "schema_version", "capture", "coverage", "claims", "candidate_sets",
-            "findings", "passes", "gaps", "verdicts",
+            "findings", "passes", "gaps", "verdicts", "rules",
         }
 
     def test_inputs_are_passed_through_unmodified(self):

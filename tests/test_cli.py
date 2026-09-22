@@ -35,7 +35,7 @@ class TestAnalyzeCaptureSchema:
         doc = analyze_capture(str(CAPTURES / filename))
         assert set(doc) == {
             "schema_version", "capture", "coverage", "claims", "candidate_sets",
-            "findings", "passes", "gaps", "verdicts",
+            "findings", "passes", "gaps", "verdicts", "rules",
         }
         assert doc["schema_version"] == "1.0"
 

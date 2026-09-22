@@ -138,6 +138,7 @@ class TestNoInjectedClaims:
             """
 - id: bogus
   title: "Bogus rule"
+  passed_title: "No bogus rule"
   target: some.field
   min_tier: OBSERVED
   condition:
@@ -404,3 +405,127 @@ class TestRealCaptureIntegration:
         finding_ids = {f.rule_id for f in result.findings}
         assert "weak_ike_sa_cipher" in finding_ids
         assert "weak_ike_sa_integrity" in finding_ids  # SHA1
+
+
+class TestPassedTitleIsTheNegativePhrasing:
+    """A rule's `title` names the problem, which is the right phrasing for
+    a Finding and exactly the wrong one for a PassedCheck: the report's
+    largest table was a list of problem strings that all meant "fine".
+    """
+
+    def test_every_rule_carries_a_passed_title_distinct_from_its_title(self, rules):
+        for rule in rules:
+            assert rule.passed_title, f"rule {rule.id!r} has no passed_title"
+            assert rule.passed_title != rule.title, (
+                f"rule {rule.id!r}: passed_title must be the negative phrasing, not a copy of title"
+            )
+
+    def test_a_missing_passed_title_is_a_load_time_error(self, tmp_path):
+        from ipsec_analyzer.assessment.rules.schema import RuleValidationError, load_rules
+
+        bad_yaml = tmp_path / "no_passed_title.yaml"
+        bad_yaml.write_text(
+            """
+- id: bogus
+  title: "Bogus rule"
+  target: some.field
+  min_tier: OBSERVED
+  condition:
+    op: eq
+    value: true
+  severity: LOW
+  category: test
+  references: ["RFC 0000"]
+  recommendation: "n/a"
+  gap_kind: not_observed_in_capture
+"""
+        )
+        with pytest.raises(RuleValidationError):
+            load_rules(bad_yaml)
+
+    def test_passed_check_uses_passed_title_not_title(self, rules):
+        ledger = ClaimLedger.from_claims(_claim("ah.detected", False))
+        result = evaluate_rules(ledger, rules)
+        passed = [p for p in result.passes if p.rule_id == "ah_in_use"]
+        assert len(passed) == 1
+        assert passed[0].title == "AH not in use"
+
+    def test_a_value_placeholder_never_leaks_into_a_passed_check(self, rules):
+        # `partial_downgrade_protection`'s title carries `{value}`. Before
+        # this pass, PassedCheck used the raw template, so a clean capture
+        # rendered the literal string "{value}" in the report.
+        ledger = ClaimLedger.from_claims(
+            _claim("ike_sa_init.downgrade_protection_state", "PROTECTED")
+        )
+        result = evaluate_rules(ledger, rules)
+        for passed in result.passes:
+            assert "{value}" not in passed.title
+
+
+class TestRuleExplanations:
+    """Every rule carries a plain-language explanation of the *check*.
+    Authored text, marked `# VERIFY BY HAND` in rules.yaml on the same
+    standard as core/constants.py.
+    """
+
+    def test_every_rule_has_an_explanation(self, rules):
+        for rule in rules:
+            assert rule.explanation, f"rule {rule.id!r} has no explanation"
+
+    def test_a_missing_explanation_is_a_load_time_error(self, tmp_path):
+        from ipsec_analyzer.assessment.rules.schema import RuleValidationError, load_rules
+
+        bad_yaml = tmp_path / "no_explanation.yaml"
+        bad_yaml.write_text(
+            """
+- id: bogus
+  title: "Bogus rule"
+  passed_title: "No bogus rule"
+  target: some.field
+  min_tier: OBSERVED
+  condition:
+    op: eq
+    value: true
+  severity: LOW
+  category: test
+  references: ["RFC 0000"]
+  recommendation: "n/a"
+  gap_kind: not_observed_in_capture
+"""
+        )
+        with pytest.raises(RuleValidationError):
+            load_rules(bad_yaml)
+
+    def test_explanations_are_substantial_prose_not_a_restated_title(self, rules):
+        for rule in rules:
+            assert len(rule.explanation.split()) >= 40, (
+                f"rule {rule.id!r}: explanation is too short to explain anything"
+            )
+            assert rule.explanation != rule.title
+            assert rule.explanation != rule.recommendation
+
+    def test_explanations_are_a_single_folded_paragraph(self, rules):
+        # The YAML uses a folded scalar; a stray newline means the block
+        # indentation broke and the text will render with hard breaks.
+        for rule in rules:
+            assert "\n" not in rule.explanation, f"rule {rule.id!r}: explanation contains a newline"
+
+    def test_no_hyphenated_word_was_split_by_line_wrapping(self, rules):
+        # A folded YAML scalar turns each line break into a space, so
+        # wrapping "pre-shared-key" across lines ships "pre- shared-key".
+        import re
+
+        for rule in rules:
+            broken = re.findall(r"\w+- \w+", rule.explanation)
+            assert not broken, f"rule {rule.id!r}: hyphenated word split by wrapping: {broken}"
+
+    def test_explanation_describes_the_check_not_a_capture(self, rules):
+        # The boundary that keeps an explanation from becoming a finding
+        # without a provenance tier: it must not address the reader's own
+        # deployment as though something had been determined about it.
+        for rule in rules:
+            lowered = rule.explanation.lower()
+            for phrase in ("your tunnel", "this capture shows", "we found", "your deployment is"):
+                assert phrase not in lowered, (
+                    f"rule {rule.id!r}: explanation makes a capture-specific claim ({phrase!r})"
+                )
