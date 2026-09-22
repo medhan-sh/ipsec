@@ -7,6 +7,7 @@ dependencies = [
     "scapy",
     "pyyaml",
     "jinja2",
+    "textual>=0.80.0",
 ]
 
 [project.optional-dependencies]
@@ -16,6 +17,7 @@ dev = [
 
 [project.scripts]
 ipsec-analyze = "ipsec_analyzer.cli:main"
+ipsec-tui = "ipsec_analyzer.tui.app:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -40,3 +42,4 @@ where = ["src"]
 # than mounted, which the previous (mount-based) Dockerfile never exposed.
 "ipsec_analyzer.assessment.rules" = ["rules.yaml"]
 "ipsec_analyzer.output" = ["templates/*.j2"]
+"ipsec_analyzer.tui" = ["*.tcss"]
