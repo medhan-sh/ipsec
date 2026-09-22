@@ -186,10 +186,10 @@ def evaluate_rules(ledger: ClaimLedger, rules: list[Rule]) -> AssessmentResult:
         rule_findings: list[Finding] = []
         rule_passes: list[PassedCheck] = []
         for claim in qualifying:
+            raw_value = claim.value
+            if rule.condition.field is not None and isinstance(claim.value, dict):
+                raw_value = claim.value.get(rule.condition.field)
             if rule.condition.evaluate(claim.value):
-                raw_value = claim.value
-                if rule.condition.field is not None and isinstance(claim.value, dict):
-                    raw_value = claim.value.get(rule.condition.field)
                 rule_findings.append(
                     Finding(
                         rule_id=rule.id,
@@ -207,7 +207,11 @@ def evaluate_rules(ledger: ClaimLedger, rules: list[Rule]) -> AssessmentResult:
                 rule_passes.append(
                     PassedCheck(
                         rule_id=rule.id,
-                        title=rule.title,
+                        # `passed_title`, not `title` — and rendered, so a
+                        # `{value}` placeholder can't leak into the report
+                        # verbatim the way it previously did for
+                        # `partial_downgrade_protection`.
+                        title=rule.render(rule.passed_title, raw_value),
                         tier=claim.tier,
                         evidence=claim.evidence,
                         scope=claim.evidence,

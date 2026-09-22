@@ -1,3 +1,39 @@
+{#- report.html.j2 — one self-contained HTML document.
+
+    No <link>, no <script src=>, no url() outside data:, and the single
+    inline <script> is additive only: every value below is present in the
+    markup and readable with scripting disabled. See output/report.py's
+    module docstring for why JS exists here at all after Phase 6 refused
+    it, and reports/phase-6e.md for the argument.
+-#}
+{% macro tier_badge(tier) -%}
+<span class="tier" data-tier="{{ tier }}"><i style="background:{{ tier_colors.get(tier, '#9aa0a6') }}"></i>{{ tier_labels.get(tier, tier) }}<span class="tier-enum">{{ tier }}</span></span>
+{%- endmacro %}
+
+{% macro value_cell(value) -%}
+{%- if value is mapping and value.get('name') -%}
+{{ value['name'] }}<span class="qual">id {{ value['transform_id'] }}{% if value.get('key_length') %}, {{ value['key_length'] }}-bit{% endif %}</span>
+{%- elif value is none -%}
+<span class="absent">not observable</span>
+{%- elif value is mapping -%}
+{% for k, v in value.items() %}{{ k }}={{ v }}{% if not loop.last %} · {% endif %}{% endfor %}
+{%- else -%}
+{{ value }}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro frames(evidence, ranges) -%}
+{%- if evidence -%}
+<span class="ev">
+  <a class="ev-count" href="#frame-{{ evidence[0] }}" data-frames="{{ evidence | join(',') }}">{{ evidence | length }} frame{{ '' if evidence | length == 1 else 's' }}</a>
+  {%- if ranges %}<span class="ev-range">{{ ranges }}</span>{% endif -%}
+  <button class="mini" type="button" data-copy="{{ evidence | join(', ') }}" title="Copy frame numbers">copy</button>
+</span>
+{%- else -%}
+<span class="ev absent">whole capture</span>
+{%- endif -%}
+{%- endmacro %}
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,348 +42,754 @@
 <title>IPsec Analyzer Report — {{ doc.capture.filename }}</title>
 <style>
   :root {
-    --bg: #ffffff;
-    --fg: #1a1a1a;
-    --muted: #5f6368;
-    --border: #dcdcdc;
-    --panel: #f7f7f8;
+    /* One type scale, one spacing rhythm. Everything below picks from
+       these rather than inventing a size at the point of use. */
+    --fs-xs: .72rem; --fs-sm: .8rem; --fs-md: .875rem; --fs-lg: 1rem;
+    --fs-xl: 1.25rem; --fs-2xl: 1.6rem;
+    --sp-1: .25rem; --sp-2: .5rem; --sp-3: .75rem; --sp-4: 1rem;
+    --sp-5: 1.5rem; --sp-6: 2rem; --sp-7: 3rem;
+    --radius: 10px; --radius-sm: 6px;
+
+    /* Colour is reserved for provenance tier and severity. Everything
+       structural is greyscale, so a coloured pixel always means something. */
+    --bg: #fbfbfc; --surface: #fff; --surface-2: #f5f6f8;
+    --fg: #17181c; --muted: #5f6570; --faint: #9098a4;
+    --border: #e4e6ea; --border-strong: #ccd0d7;
+    --ok: #2f8f5b; --bad: #c5221f; --info: #1a56c4;
     --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1115; --surface: #161920; --surface-2: #1c2029;
+      --fg: #e6e8ec; --muted: #9aa2b1; --faint: #6f7684;
+      --border: #262b35; --border-strong: #39404d;
+      --ok: #5fc48a; --bad: #f0736f; --info: #7ba6f5;
+    }
   }
   * { box-sizing: border-box; }
   body {
-    background: var(--bg);
-    color: var(--fg);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    margin: 0;
-    padding: 0 0 4rem 0;
-    line-height: 1.5;
+    margin: 0; padding: 0 0 var(--sp-7); background: var(--bg); color: var(--fg);
+    font: var(--fs-md)/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
-  header {
-    background: #14213d;
-    color: #ffffff;
-    padding: 1.5rem 2rem;
-  }
-  header h1 { margin: 0 0 0.25rem 0; font-size: 1.4rem; }
-  header .meta { color: #c9d3e8; font-size: 0.85rem; font-family: var(--mono); }
-  header .meta span { margin-right: 1.5rem; display: inline-block; }
+  main { max-width: 1020px; margin: 0 auto; padding: 0 var(--sp-5); }
+  a { color: var(--info); }
+
+  header.page { max-width: 1020px; margin: 0 auto; padding: var(--sp-6) var(--sp-5) var(--sp-4); }
+  header.page .eyebrow { font-size: var(--fs-sm); color: var(--muted); font-weight: 600; }
+  header.page h1 { font-size: var(--fs-2xl); margin: var(--sp-1) 0 var(--sp-2); letter-spacing: -.02em; }
+  header.page .meta { display: flex; flex-wrap: wrap; gap: var(--sp-4); font-family: var(--mono); font-size: var(--fs-xs); color: var(--faint); }
+
   .truncated-banner {
-    background: #7a3b00;
-    color: #fff;
-    padding: 0.6rem 2rem;
-    font-size: 0.9rem;
-    font-weight: 600;
+    background: #7a3b00; color: #fff; padding: var(--sp-2) var(--sp-5);
+    font-size: var(--fs-md); font-weight: 600; text-align: center;
   }
-  main { max-width: 980px; margin: 0 auto; padding: 0 2rem; }
-  section { margin-top: 2.5rem; }
-  h2 { font-size: 1.1rem; border-bottom: 2px solid var(--border); padding-bottom: 0.4rem; }
-  h3 { font-size: 0.95rem; margin-bottom: 0.4rem; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-top: 0.75rem; }
-  th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
-  th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
-  tr:last-child td { border-bottom: none; }
-  code, .mono { font-family: var(--mono); font-size: 0.85em; }
-  .badge {
-    display: inline-block;
-    padding: 0.1rem 0.55rem;
-    border-radius: 999px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    color: #fff;
-    white-space: nowrap;
+
+  section { margin-top: var(--sp-6); }
+  h2 {
+    font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .07em;
+    color: var(--faint); font-weight: 700; margin: 0 0 var(--sp-3);
+    display: flex; align-items: baseline; gap: var(--sp-2);
   }
-  .frame-link {
-    display: inline-block;
-    margin: 0 2px;
-    padding: 0 5px;
-    border-radius: 4px;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    color: var(--fg);
-    text-decoration: none;
-    font-family: var(--mono);
-    font-size: 0.78rem;
+  h2 .count { text-transform: none; letter-spacing: 0; font-weight: 400; font-family: var(--mono); }
+  h3 { font-size: var(--fs-sm); margin: 0 0 var(--sp-2); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--sp-4) var(--sp-5); }
+
+  /* hero */
+  .hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--sp-5); }
+  @media (max-width: 820px) { .hero { grid-template-columns: 1fr; } }
+  .posture { display: flex; align-items: center; gap: var(--sp-2); }
+  .posture .dot { width: .7rem; height: .7rem; border-radius: 50%; flex: none; }
+  .posture .head { font-size: var(--fs-xl); font-weight: 650; letter-spacing: -.02em; }
+  .posture-sub { color: var(--muted); margin-top: var(--sp-2); }
+  .posture-sub strong { color: var(--fg); font-weight: 600; }
+  .bar { display: flex; height: .55rem; border-radius: 99px; overflow: hidden; background: var(--border); margin-top: var(--sp-4); }
+  .bar span { display: block; }
+  .bar-legend { display: flex; gap: var(--sp-4); margin-top: var(--sp-2); font-size: var(--fs-xs); color: var(--muted); flex-wrap: wrap; }
+  .bar-legend i { width: .55rem; height: .55rem; border-radius: 2px; display: inline-block; margin-right: var(--sp-1); vertical-align: middle; }
+  .facts { border-left: 1px solid var(--border); padding-left: var(--sp-5); }
+  @media (max-width: 820px) { .facts { border-left: 0; padding-left: 0; border-top: 1px solid var(--border); padding-top: var(--sp-4); } }
+  .fact { display: flex; justify-content: space-between; gap: var(--sp-4); padding: var(--sp-1) 0; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
+  .fact:last-child { border-bottom: 0; }
+  .fact .k { color: var(--muted); }
+  .fact .v { font-family: var(--mono); font-size: var(--fs-xs); text-align: right; }
+
+  /* integrity */
+  .integrity { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-5); }
+  .sig { font-size: var(--fs-sm); display: flex; align-items: center; gap: var(--sp-2); }
+  .sig i { width: .5rem; height: .5rem; border-radius: 50%; flex: none; background: var(--ok); }
+  .sig.bad i { background: var(--bad); }
+  .sig.bad { color: var(--bad); font-weight: 600; }
+  .sig .v { font-family: var(--mono); font-size: var(--fs-xs); color: var(--muted); }
+  .sig.bad .v { color: inherit; }
+
+  /* checks grid */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(186px, 1fr)); gap: var(--sp-2); }
+  .cell {
+    border: 1px solid var(--border); border-left-width: 3px; border-radius: var(--radius-sm);
+    padding: var(--sp-2) var(--sp-3); min-height: 3.4rem;
+    display: flex; flex-direction: column; justify-content: center; gap: 1px;
+    /* a <button>, so it is keyboard reachable and announced as a control */
+    font: inherit; text-align: left; background: var(--surface); color: inherit;
+    cursor: pointer; width: 100%;
   }
-  .frame-link:hover { background: #e8e8ea; }
-  .coverage-headline { font-size: 0.95rem; color: var(--muted); margin: 0.5rem 0 0 0; }
-  .coverage-headline strong { color: var(--fg); }
-  .counter-row { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
-  .counter {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.9rem 1.2rem;
-    min-width: 130px;
+  .cell:hover { border-color: var(--border-strong); }
+  .cell:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+  .cell[aria-expanded="true"] { border-color: var(--info); box-shadow: 0 0 0 1px var(--info) inset; }
+
+  .panes { margin-top: var(--sp-4); }
+  .explain { border-top: 1px solid var(--border); }
+  .explain > summary {
+    cursor: pointer; list-style: none; padding: var(--sp-3) 0;
+    display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-md); font-weight: 560;
   }
-  .counter .n { font-size: 1.6rem; font-weight: 700; display: block; }
-  .counter .label { font-size: 0.78rem; color: var(--muted); }
-  .legend-row { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.6rem; }
-  .legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; }
-  .swatch { width: 0.85rem; height: 0.85rem; border-radius: 3px; display: inline-block; }
-  .empty-note { color: var(--muted); font-style: italic; padding: 0.75rem 0; }
-  .caveat { color: var(--muted); font-size: 0.82rem; font-style: italic; margin-top: 0.15rem; }
+  .explain > summary::-webkit-details-marker { display: none; }
+  .explain > summary:hover { color: var(--info); }
+  .explain-state { width: .5rem; height: .5rem; border-radius: 2px; flex: none; background: var(--border-strong); }
+  .explain-state.is-found { background: var(--bad); }
+  .explain-state.is-pass { background: var(--ok); }
+  .explain-hint {
+    margin-left: auto; font-size: var(--fs-xs); color: var(--faint);
+    text-transform: uppercase; letter-spacing: .04em; font-weight: 400;
+  }
+  .explain-body { padding: 0 0 var(--sp-4) calc(.5rem + var(--sp-2)); max-width: 68ch; }
+  .explain-body p { margin: 0 0 var(--sp-2); color: var(--muted); }
+  .explain-action { color: var(--fg) !important; }
+  .explain:target, .explain[open] { background: var(--surface-2); border-radius: var(--radius-sm); }
+  /* Static prose, not a toggleable pane — deliberately NOT .explain, so
+     the script's "close every other pane" sweep never sees these. */
+  .concept { border-top: 1px solid var(--border); padding: var(--sp-3) 0; }
+  .explain[open] > summary { color: var(--fg); }
+  .cell .lbl { font-size: var(--fs-sm); font-weight: 560; line-height: 1.3; }
+  .cell .st { font-size: var(--fs-xs); color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }
+  .cell.is-found { border-left-color: var(--bad); }
+  .cell.is-found .lbl { color: var(--bad); }
+  .cell.is-pass { border-left-color: var(--ok); }
+  .cell.is-gap { border-left-color: var(--border-strong); background: var(--bg); }
+  .cell.is-gap .lbl { color: var(--muted); font-weight: 500; }
+
+  /* findings */
+  .finding { border: 1px solid var(--border); border-left: 3px solid var(--bad); border-radius: var(--radius-sm); padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-2); }
+  .finding .top { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
+  .finding .ttl { font-weight: 650; font-size: var(--fs-lg); }
+  .sev { font-size: var(--fs-xs); font-weight: 700; padding: .1rem .5rem; border-radius: 99px; color: #fff; }
+  .rec { color: var(--muted); font-size: var(--fs-sm); margin-top: var(--sp-2); }
+  .refs { font-family: var(--mono); font-size: var(--fs-xs); color: var(--faint); margin-top: var(--sp-1); }
+
+  /* gaps */
+  .gapgroup { border-top: 1px solid var(--border); padding-top: var(--sp-4); margin-top: var(--sp-4); }
+  .gapgroup:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+  .gapgroup h3 { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-lg); }
+  .gapgroup .kdot { width: .55rem; height: .55rem; border-radius: 2px; flex: none; }
+  .gapgroup .lede { color: var(--muted); font-size: var(--fs-sm); margin: var(--sp-1) 0 var(--sp-3); }
+  .gapgroup ul { margin: 0; padding-left: 1.1rem; }
+  .gapgroup li { margin: var(--sp-1) 0; font-size: var(--fs-sm); }
+  .gapgroup li .why { color: var(--faint); font-size: var(--fs-xs); }
+
+  /* esp explorer */
+  .tunnel-head { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
+  .tunnel-head .n { font-size: var(--fs-lg); font-weight: 650; }
+  .pill { font-size: var(--fs-xs); padding: .1rem .5rem; border-radius: 99px; background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+  .spis { font-family: var(--mono); font-size: var(--fs-xs); color: var(--faint); margin-top: var(--sp-1); word-break: break-all; }
+  .funnel { display: flex; height: 1.4rem; border-radius: var(--radius-sm); overflow: hidden; margin-top: var(--sp-3); background: var(--border); }
+  .funnel span { display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: var(--fs-xs); }
+  .funnel .f-elim { background: var(--ok); color: #fff; }
+  .funnel .f-left { background: var(--border-strong); color: var(--muted); }
+  .groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: var(--sp-2); margin-top: var(--sp-3); }
   .indist-group {
-    background: var(--panel);
-    border: 1px dashed var(--border);
-    border-radius: 6px;
-    padding: 0.5rem 0.75rem;
-    margin: 0.4rem 0;
-    font-size: 0.85rem;
+    border: 1px dashed var(--border-strong); border-radius: var(--radius-sm);
+    padding: var(--sp-2) var(--sp-3); font-size: var(--fs-xs); background: var(--surface);
   }
-  .sa-block { border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; margin-top: 1rem; }
-  .sa-block h3 { margin-top: 0; font-family: var(--mono); }
-  .verdict-unanimous { border-left: 4px solid #5fb87a; padding-left: 0.75rem; margin: 0.5rem 0; }
-  .verdict-ambiguous { border-left: 4px solid #e37400; padding-left: 0.75rem; margin: 0.5rem 0; }
-  .suite-set { font-family: var(--mono); font-size: 0.82rem; }
-  details { margin-top: 0.75rem; }
-  summary { cursor: pointer; font-weight: 600; color: var(--muted); font-size: 0.85rem; }
-  footer { max-width: 980px; margin: 3rem auto 0 auto; padding: 1rem 2rem; color: var(--muted); font-size: 0.78rem; border-top: 1px solid var(--border); }
-  a { color: #1a56c4; }
+  .indist-group > summary { cursor: pointer; list-style: none; font-family: var(--mono); font-weight: 650; }
+  .indist-group > summary::-webkit-details-marker { display: none; }
+  .indist-group .gm { color: var(--muted); margin-top: var(--sp-1); line-height: 1.6; }
+  .indist-group.is-dissenting { border-color: var(--bad); border-style: solid; }
+
+  /* verdicts */
+  .verdict { margin-top: var(--sp-4); }
+  .verdict .pn { font-family: var(--mono); font-size: var(--fs-sm); font-weight: 650; }
+  .split { display: flex; height: 1.4rem; border-radius: var(--radius-sm); overflow: hidden; margin-top: var(--sp-2); }
+  .split span { display: flex; align-items: center; justify-content: center; color: #fff; font-family: var(--mono); font-size: var(--fs-xs); }
+  .split .yes { background: var(--ok); }
+  .split .no { background: #b45309; cursor: pointer; }
+  .verdict .note { font-size: var(--fs-sm); color: var(--muted); margin-top: var(--sp-2); }
+  .verdict-unanimous { border-left: 3px solid var(--ok); padding-left: var(--sp-3); }
+  .verdict-ambiguous { border-left: 3px solid #b45309; padding-left: var(--sp-3); }
+
+  /* tables */
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--faint); font-weight: 700; padding: var(--sp-2); border-bottom: 1px solid var(--border); }
+  td { padding: var(--sp-2); border-bottom: 1px solid var(--border); vertical-align: top; font-size: var(--fs-sm); }
+  tr:last-child td { border-bottom: 0; }
+  .fld, .mono { font-family: var(--mono); font-size: var(--fs-xs); }
+  .val { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600; }
+  .qual { color: var(--faint); font-weight: 400; margin-left: .4em; }
+  .absent { color: var(--faint); font-style: italic; font-weight: 400; }
+  .xn { font-family: var(--mono); font-size: var(--fs-xs); color: var(--faint); margin-left: .4em; }
+  .cav { color: var(--faint); font-size: var(--fs-xs); font-style: italic; margin-top: var(--sp-1); }
+
+  .tier { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
+  .tier i { width: .5rem; height: .5rem; border-radius: 2px; flex: none; }
+  .tier-enum { display: none; }
+
+  .ev { display: inline-flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
+  .ev-count { font-family: var(--mono); font-size: var(--fs-xs); text-decoration: none; border-bottom: 1px dotted currentColor; }
+  .ev-range { font-family: var(--mono); font-size: var(--fs-xs); color: var(--faint); }
+
+  button.mini {
+    font: inherit; font-size: var(--fs-xs); font-family: var(--mono);
+    background: var(--surface-2); color: var(--muted); border: 1px solid var(--border);
+    border-radius: 4px; padding: 0 .35rem; cursor: pointer;
+  }
+  button.mini:hover { color: var(--fg); border-color: var(--border-strong); }
+
+  .chips { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-3); }
+  .chip {
+    font: inherit; font-size: var(--fs-xs); padding: .25rem .65rem; border-radius: 99px;
+    border: 1px solid var(--border-strong); background: var(--surface); color: var(--muted); cursor: pointer;
+  }
+  .chip i { width: .5rem; height: .5rem; border-radius: 2px; display: inline-block; margin-right: var(--sp-1); }
+  .chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+
+  .dimmed { opacity: .22; }
+  .highlight { background: color-mix(in srgb, var(--info) 16%, transparent); outline: 2px solid var(--info); outline-offset: -2px; }
+
+  details.block { margin-top: var(--sp-3); }
+  details.block > summary {
+    cursor: pointer; font-size: var(--fs-sm); color: var(--muted); list-style: none;
+    display: flex; align-items: center; gap: var(--sp-1); padding: var(--sp-1) 0;
+  }
+  details.block > summary::-webkit-details-marker { display: none; }
+  details.block > summary::before { content: "\25B8"; font-size: var(--fs-xs); }
+  details.block[open] > summary::before { content: "\25BE"; }
+  details.block > summary:hover { color: var(--fg); }
+
+  .empty-note { color: var(--muted); font-style: italic; padding: var(--sp-3) 0; }
+  footer { max-width: 1020px; margin: var(--sp-7) auto 0; padding: var(--sp-4) var(--sp-5); color: var(--faint); font-size: var(--fs-xs); border-top: 1px solid var(--border); display: flex; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
+
+  @media print {
+    body { background: #fff; }
+    .chips, button.mini, .toolbar { display: none !important; }
+    details.block > summary { display: none; }
+    details.block > *:not(summary) { display: block !important; }
+    .explain > summary { font-weight: 700; }
+    .explain > *:not(summary) { display: block !important; }
+    .cell { cursor: default; }
+    .indist-group > summary { list-style: none; }
+    .indist-group > *:not(summary) { display: block !important; }
+    .dimmed { opacity: 1 !important; }
+    .tier-enum { display: inline; margin-left: .3em; }
+  }
 </style>
 </head>
 <body>
 
-<header>
-  <h1>IPsec Analyzer Report</h1>
+<header class="page">
+  <div class="eyebrow">IPsec Analyzer</div>
+  <h1>{{ doc.capture.filename }}</h1>
   <div class="meta">
-    <span>file: {{ doc.capture.filename }}</span>
-    <span>sha256: {{ doc.capture.sha256[:16] }}&hellip;</span>
-    <span>packets: {{ doc.capture.packet_count }}</span>
-    <span>duration: {{ doc.capture.duration_s }}s</span>
+    <span>sha256 {{ doc.capture.sha256[:16] }}&hellip;</span>
+    <span>{{ doc.capture.packet_count }} packets</span>
+    <span>{{ doc.capture.duration_s }} s</span>
+    {% if doc.coverage.tshark_version %}<span>tshark {{ doc.coverage.tshark_version }}</span>{% endif %}
+    <span>schema {{ doc.schema_version }}</span>
   </div>
 </header>
 
 {% if doc.capture.truncated %}
-<div class="truncated-banner">
-  ⚠ This capture appears truncated or incompletely captured — coverage gaps below may reflect missing data, not the absence of a feature on the wire.
-</div>
+<div class="truncated-banner">This capture is truncated — findings below cover only what was actually recorded.</div>
 {% endif %}
 
 <main>
 
-<section id="coverage">
-  <h2>Coverage</h2>
-  <p class="coverage-headline">
-    {{ doc.coverage.checks_total }} rules total —
-    <strong>{{ doc.coverage.checks_found }}</strong> found,
-    <strong>{{ doc.coverage.checks_passed }}</strong> passed,
-    <strong>{{ doc.coverage.checks_gap }}</strong> gaps
-  </p>
-  <div class="counter-row">
-    <div class="counter"><span class="n">{{ doc.coverage.checks_total }}</span><span class="label">rules total</span></div>
-    <div class="counter"><span class="n">{{ doc.coverage.checks_found }}</span><span class="label">found</span></div>
-    <div class="counter"><span class="n">{{ doc.coverage.checks_passed }}</span><span class="label">passed</span></div>
-    <div class="counter"><span class="n">{{ doc.coverage.checks_gap }}</span><span class="label">coverage gaps</span></div>
+<section id="posture">
+  <div class="card hero">
+    <div>
+      <div class="posture">
+        <span class="dot" style="background:{{ 'var(--bad)' if doc.findings else 'var(--ok)' }}"></span>
+        <span class="head">
+          {%- if doc.findings -%}
+          {{ doc.findings | length }} policy violation{{ '' if doc.findings | length == 1 else 's' }} found
+          {%- else -%}
+          No policy violations found
+          {%- endif -%}
+        </span>
+      </div>
+      <p class="posture-sub">
+        <strong>{{ doc.coverage.checks_assessable }} of {{ doc.coverage.checks_total }}</strong> checks could be assessed
+        against this capture{% if not doc.findings and doc.coverage.checks_assessable %}, and all of them came back clean{% endif %}.
+        {% if doc.coverage.checks_gap %}The remaining <strong>{{ doc.coverage.checks_gap }}</strong> could not be evaluated — see why below.{% endif %}
+        This states what was checkable and what was not; it is not an assertion that the tunnel is safe.
+      </p>
+      <div class="bar" role="img" aria-label="{{ doc.coverage.checks_found }} found, {{ doc.coverage.checks_passed }} passed, {{ doc.coverage.checks_gap }} gaps of {{ doc.coverage.checks_total }}">
+        {% if doc.coverage.checks_found %}<span style="background:var(--bad);width:{{ (100.0 * doc.coverage.checks_found / doc.coverage.checks_total) | round(2) }}%"></span>{% endif %}
+        {% if doc.coverage.checks_passed %}<span style="background:var(--ok);width:{{ (100.0 * doc.coverage.checks_passed / doc.coverage.checks_total) | round(2) }}%"></span>{% endif %}
+        {% if doc.coverage.checks_gap %}<span style="background:var(--border-strong);width:{{ (100.0 * doc.coverage.checks_gap / doc.coverage.checks_total) | round(2) }}%"></span>{% endif %}
+      </div>
+      <div class="bar-legend">
+        <span>{{ doc.coverage.checks_total }} rules total —</span>
+        <span><i style="background:var(--bad)"></i><strong>{{ doc.coverage.checks_found }}</strong> found</span>
+        <span><i style="background:var(--ok)"></i><strong>{{ doc.coverage.checks_passed }}</strong> passed</span>
+        <span><i style="background:var(--border-strong)"></i><strong>{{ doc.coverage.checks_gap }}</strong> gaps</span>
+      </div>
+    </div>
+
+    <div class="facts">
+      <h3>Negotiated IKE SA</h3>
+      {% set ike_fields = [
+        ('ike.version', 'IKE version'),
+        ('ike_sa.encryption', 'Encryption'),
+        ('ike_sa.integrity', 'Integrity'),
+        ('ike_sa.prf', 'PRF'),
+        ('ike_sa.dh_group', 'DH group'),
+        ('ike_sa_init.downgrade_protection_state', 'Downgrade protection'),
+      ] %}
+      {% set shown = [] %}
+      {% for field, label in ike_fields %}
+        {% set claim = doc.claims | selectattr('field', 'equalto', field) | first %}
+        {% if claim %}
+          {% set _ = shown.append(field) %}
+          <div class="fact">
+            <span class="k">{{ label }}</span>
+            <span class="v">{% if claim.value is mapping and claim.value.get('name') %}{{ claim.value['name'] }}{% elif claim.value is none %}<span class="absent">not observable</span>{% else %}{{ claim.value }}{% endif %}</span>
+          </div>
+        {% endif %}
+      {% endfor %}
+      <div class="fact"><span class="k">ESP tunnels</span><span class="v">{{ doc.coverage.esp_tunnels_total }}</span></div>
+      {% if not shown %}<p class="empty-note">No IKE SA parameters were observed in this capture.</p>{% endif %}
+    </div>
   </div>
-  <table>
-    <tr><th>Signal</th><th>Value</th></tr>
-    <tr><td>tshark exited cleanly</td><td>{{ doc.coverage.tshark_exit_clean }}</td></tr>
-    <tr><td>packets skipped at ingest</td><td>{{ doc.coverage.packets_skipped }}</td></tr>
-    <tr><td>IKE_SA_INIT request observed</td><td>{{ doc.coverage.ike_sa_init_request_observed }}</td></tr>
-    <tr><td>IKE_SA_INIT response observed</td><td>{{ doc.coverage.ike_sa_init_response_observed }}</td></tr>
-    <tr><td>ESP tunnels found</td><td>{{ doc.coverage.esp_tunnels_total }}</td></tr>
-    <tr><td>ESP tunnels missing a direction</td><td>{{ doc.coverage.esp_tunnels_missing_a_direction }}</td></tr>
-  </table>
 </section>
 
-<section id="legend">
-  <h2>Provenance tier legend</h2>
-  <div class="legend-row">
-    {% for tier in tier_order %}
-    <div class="legend-item"><span class="swatch" style="background:{{ tier_colors[tier] }}"></span>{{ tier }}</div>
-    {% endfor %}
+<section id="integrity">
+  <h2>Capture integrity</h2>
+  <div class="card">
+    <div class="integrity">
+      {% for signal in integrity_signals %}
+      <span class="sig{{ '' if signal.ok else ' bad' }}"><i></i>{{ signal.label }} <span class="v">{{ signal.value }}</span></span>
+      {% endfor %}
+    </div>
+    <p class="cav">These are what justify trusting everything below. Anything red means the capture itself is incomplete, and every result should be read against that.</p>
   </div>
-  <h2 style="margin-top:1.5rem;">Severity legend</h2>
-  <div class="legend-row">
-    {% for sev, color in severity_colors.items() %}
-    <div class="legend-item"><span class="swatch" style="background:{{ color }}"></span>{{ sev }}</div>
-    {% endfor %}
+</section>
+
+<section id="checks">
+  <h2>Checks <span class="count">{{ doc.coverage.checks_total }} rules</span></h2>
+  <div class="card">
+    <p class="cav" style="margin-top:0">Select any check to read what it means, why it matters, and how this tool can tell.</p>
+    <div class="grid">
+      {% for cell in check_cells %}
+      <button class="cell is-{{ cell.state }}" type="button"
+              data-explain="{{ cell.rule_id }}"
+              aria-expanded="false" aria-controls="expl-{{ cell.rule_id }}">
+        <span class="lbl">{{ cell.label }}</span>
+        <span class="st">{{ cell.status }}</span>
+      </button>
+      {% endfor %}
+    </div>
+
+    {#- The explanation panes. Present in the markup and individually
+        expandable with no scripting at all; the script upgrades the grid
+        above into controls that open them. Print force-expands them. -#}
+    <div class="panes" id="check-explanations">
+      {% for cell in check_cells %}
+      <details class="explain" id="expl-{{ cell.rule_id }}">
+        <summary>
+          <span class="explain-state is-{{ cell.state }}"></span>{{ cell.label }}
+          <span class="explain-hint">{{ cell.status }}</span>
+        </summary>
+        <div class="explain-body">
+          {% if cell.explanation %}<p>{{ cell.explanation }}</p>{% endif %}
+          {% if cell.state == 'found' and cell.recommendation %}
+          <p class="explain-action"><strong>What to do:</strong> {{ cell.recommendation }}</p>
+          {% endif %}
+          {% if cell.state == 'gap' %}
+          <p class="explain-action"><strong>Why this capture could not answer it:</strong>
+            {{ cell.gap_explanation }}</p>
+          <p class="cav">Engine detail: {{ cell.gap_reason }}</p>
+          {% endif %}
+          {% if cell.references %}
+          <p class="refs">{{ cell.references | join(' · ') }}</p>
+          {% endif %}
+        </div>
+      </details>
+      {% endfor %}
+    </div>
   </div>
 </section>
 
 <section id="findings">
-  <h2>Findings ({{ doc.findings|length }})</h2>
+  <h2>Findings <span class="count">{{ doc.findings | length }}</span></h2>
   {% if doc.findings %}
-  <table>
-    <tr><th>Severity</th><th>Title</th><th>Category</th><th>Tier</th><th>Frames</th><th>Details</th></tr>
-    {% for f in doc.findings %}
-    <tr>
-      <td><span class="badge" style="background:{{ severity_colors.get(f.severity, '#5f6368') }}">{{ f.severity }}</span></td>
-      <td>{{ f.title }}</td>
-      <td>{{ f.category }}</td>
-      <td><span class="badge" style="background:{{ tier_colors.get(f.tier, '#5f6368') }}">{{ f.tier }}</span></td>
-      <td>
-        {% for frame in f.evidence %}<a class="frame-link" href="#frame-{{ frame }}">{{ frame }}</a>{% endfor %}
-      </td>
-      <td>
-        {{ f.recommendation }}
-        {% if f.references %}<div class="caveat">Ref: {{ f.references|join(", ") }}</div>{% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </table>
+  {% for finding in doc.findings %}
+  <div class="finding" data-tier="{{ finding.tier }}">
+    <div class="top">
+      <span class="sev" style="background:{{ severity_colors.get(finding.severity, '#5f6368') }}">{{ finding.severity }}</span>
+      <span class="ttl">{{ finding.title }}</span>
+      {{ tier_badge(finding.tier) }}
+    </div>
+    <p class="rec">{{ finding.recommendation }}</p>
+    <div class="refs">{{ finding.references | join(' · ') }}</div>
+    <div class="refs">{{ frames(finding.evidence, '') }}</div>
+  </div>
+  {% endfor %}
   {% else %}
-  <div class="empty-note">No findings triggered by this capture's observed claims.</div>
+  <div class="card"><div class="empty-note">No findings triggered by this capture's observed claims.</div></div>
   {% endif %}
 </section>
 
 <section id="passes">
-  <h2>Checks passed ({{ doc.passes|length }})</h2>
-  {% if doc.passes %}
-  <table>
-    <tr><th>Check</th><th>Tier</th><th>Frames</th></tr>
-    {% for p in doc.passes %}
-    <tr>
-      <td>{{ p.title }}</td>
-      <td><span class="badge" style="background:{{ tier_colors.get(p.tier, '#5f6368') }}">{{ p.tier }}</span></td>
-      <td>
-        {% for frame in p.evidence %}<a class="frame-link" href="#frame-{{ frame }}">{{ frame }}</a>{% endfor %}
-      </td>
-    </tr>
-    {% endfor %}
-  </table>
-  {% else %}
-  <div class="empty-note">No rule was both assessable and clean on this capture.</div>
-  {% endif %}
+  <h2>Checks passed <span class="count">{{ pass_rows | length }} rules</span></h2>
+  <div class="card">
+    {% if pass_rows %}
+    <table>
+      <tr><th>What was checked, and came back clean</th><th>How we know</th><th>Evidence</th></tr>
+      {% for row in pass_rows %}
+      <tr data-tier="{{ row.tier }}">
+        <td>{{ row.title }}{% if row.occurrences > 1 %}<span class="xn">&times;{{ row.occurrences }} tunnels</span>{% endif %}</td>
+        <td>{{ tier_badge(row.tier) }}</td>
+        <td>{{ frames(row.evidence, row.frame_ranges) }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty-note">No rule was both assessable and clean on this capture.</div>
+    {% endif %}
+  </div>
 </section>
 
 <section id="gaps">
-  <h2>Coverage gaps ({{ doc.gaps|length }})</h2>
-  {% if doc.gaps %}
-  <table>
-    <tr><th>Rule</th><th>Reason</th><th>Gap kind</th><th>Required tier</th><th>Actual tier</th></tr>
-    {% for g in doc.gaps %}
-    <tr>
-      <td>{{ g.title }}</td>
-      <td>{{ g.reason }}</td>
-      <td>{{ gap_kind_labels.get(g.gap_kind, g.gap_kind) }}</td>
-      <td><span class="badge" style="background:{{ tier_colors.get(g.required_tier, '#5f6368') }}">{{ g.required_tier }}</span></td>
-      <td><span class="badge" style="background:{{ tier_colors.get(g.actual_tier, '#5f6368') }}">{{ g.actual_tier }}</span></td>
-    </tr>
-    {% endfor %}
-  </table>
-  {% else %}
-  <div class="empty-note">No coverage gaps — every rule was assessable.</div>
-  {% endif %}
-</section>
-
-<section id="verdicts">
-  <h2>Lifted risk verdicts ({{ doc.verdicts|length }})</h2>
-  {% if doc.verdicts %}
-    {% for v in doc.verdicts %}
-      {% if v.ambiguous %}
-      <div class="verdict-ambiguous">
-        <strong>{{ v.predicate }}</strong> ({{ v.sa_id }}) — <em>ambiguous</em>: candidates disagree, at confidence {{ v.confidence }}
-        <span class="badge" style="background:{{ tier_colors.get(v.basis_tier, '#5f6368') }}">basis: {{ v.basis_tier }}</span>
-        <div class="suite-set">Agree TRUE: {{ v.surviving_true|join(", ") }}</div>
-        <div class="suite-set">Agree FALSE: {{ v.surviving_false|join(", ") }}</div>
-        <div class="caveat">{{ v.basis }}</div>
-      </div>
-      {% else %}
-      <div class="verdict-unanimous">
-        <strong>{{ v.predicate }}</strong> ({{ v.sa_id }}) — <strong>{{ v.outcome }}</strong> at confidence {{ v.confidence }}
-        <span class="badge" style="background:{{ tier_colors.get(v.basis_tier, '#5f6368') }}">basis: {{ v.basis_tier }}</span>
-        <div class="caveat">{{ v.basis }}</div>
-      </div>
-      {% endif %}
-    {% endfor %}
-  {% else %}
-  <div class="empty-note">No ESP candidate set survived narrowing in this capture — no risk verdict was lifted (see Candidate sets below for why, e.g. no ESP data-plane traffic was observed at all).</div>
-  {% endif %}
-</section>
-
-<section id="candidate-sets">
-  <h2>ESP candidate sets ({{ doc.candidate_sets|length }})</h2>
-  {% if doc.candidate_sets %}
-    {% for cs in doc.candidate_sets %}
-    <div class="sa-block">
-      <h3>{{ cs.sa_id }}</h3>
-      <p>{{ cs.surviving|length }} of {{ cs.universe_size }} candidate suites survive:</p>
-      <div class="suite-set">{{ cs.surviving|join(", ") if cs.surviving else "(none survive — every candidate was eliminated)" }}</div>
-
-      {% if cs.indistinguishable %}
-      <p style="margin-top:0.75rem;"><strong>Explicitly indistinguishable by this method</strong> (share identical wire framing):</p>
-      {% for group in cs.indistinguishable %}
-      <div class="indist-group">{{ group|join(", ") }}</div>
-      {% endfor %}
-      {% endif %}
-
-      <details>
-        <summary>Eliminated candidates ({{ cs.eliminated|length }})</summary>
-        <table>
-          <tr><th>Suite</th><th>Reason</th></tr>
-          {% for suite_id, reason in cs.eliminated %}
-          <tr><td class="mono">{{ suite_id }}</td><td>{{ reason }}</td></tr>
-          {% endfor %}
-        </table>
-      </details>
+  <h2>What could not be assessed <span class="count">{{ doc.gaps | length }} of {{ doc.coverage.checks_total }}</span></h2>
+  <div class="card">
+    {% if gap_groups %}
+    {% for group in gap_groups %}
+    <div class="gapgroup">
+      <h3><span class="kdot" style="background:{{ group.color }}"></span>{{ group.heading }} <span class="count" style="color:var(--faint);font-weight:400;font-size:var(--fs-sm)">· {{ group.gaps | length }}</span></h3>
+      <p class="lede">{{ group.lede }}</p>
+      <ul>
+        {% for gap in group.gaps %}
+        <li><strong>{{ gap.title }}</strong> — <span class="why">{{ gap.reason }} ({{ gap_kind_labels.get(gap.gap_kind, gap.gap_kind) }})</span></li>
+        {% endfor %}
+      </ul>
     </div>
     {% endfor %}
+    {% else %}
+    <div class="empty-note">Every rule was assessable against this capture.</div>
+    {% endif %}
+  </div>
+</section>
+
+<section id="esp">
+  <h2>ESP data plane <span class="count">{{ doc.coverage.esp_tunnels_total }} tunnel{{ '' if doc.coverage.esp_tunnels_total == 1 else 's' }}</span></h2>
+  {% if tunnel_blocks %}
+  {% for block in tunnel_blocks %}
+  <div class="card" style="margin-bottom:var(--sp-3)">
+    <div class="tunnel-head">
+      <span class="n">{{ block.surviving_count }} of {{ block.universe_size }} suites survive</span>
+      {% if block.tunnel_count > 1 %}<span class="pill">{{ block.tunnel_count }} tunnels, identical outcome</span>{% endif %}
+    </div>
+    <div class="spis">{{ block.sa_ids | join(' · ') }}</div>
+
+    {% if block.surviving_count %}
+    <div class="funnel" role="img" aria-label="{{ block.eliminated_count }} eliminated, {{ block.surviving_count }} remain">
+      {% if block.eliminated_count %}<span class="f-elim" style="width:{{ (100.0 * block.eliminated_count / block.universe_size) | round(2) }}%">{{ block.eliminated_count }} eliminated</span>{% endif %}
+      <span class="f-left" style="width:{{ (100.0 * block.surviving_count / block.universe_size) | round(2) }}%">{{ block.surviving_count }} remain</span>
+    </div>
+
+    {% if block.groups %}
+    <h3 style="margin-top:var(--sp-4)">Indistinguishability ceiling</h3>
+    <p class="cav" style="font-style:normal">
+      The {{ block.surviving_count }} survivors collapse into <strong>{{ block.groups | length }}</strong> groups sharing byte-identical wire framing.
+      No amount of additional traffic separates members within a group.
+    </p>
+    <div class="groups">
+      {% for group in block.groups %}
+      <details class="indist-group" id="grp-{{ loop.index0 }}" data-group="{{ loop.index0 }}">
+        <summary>{{ group.size }} suite{{ '' if group.size == 1 else 's' }}</summary>
+        <div class="gm">{{ group.members | join(', ') }}</div>
+      </details>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if block.ungrouped %}
+    <p class="cav">Not in any indistinguishability group: {{ block.ungrouped | join(', ') }}</p>
+    {% endif %}
+
+    {% for verdict in block.verdicts %}
+    <div class="verdict {{ 'verdict-ambiguous' if verdict.ambiguous else 'verdict-unanimous' }}">
+      <span class="pn">{{ verdict.predicate }}</span>
+      {{ tier_badge(verdict.basis_tier) }}
+      <span class="mono" style="color:var(--faint)">basis: {{ verdict.basis_tier }} · confidence {{ verdict.confidence }}</span>
+      {% if verdict.ambiguous %}
+      <div class="split" role="img" aria-label="{{ verdict.true_count }} acceptable, {{ verdict.false_count }} not">
+        <span class="yes" style="width:{{ verdict.true_pct }}%">{{ verdict.true_count }} acceptable</span>
+        <span class="no" style="width:{{ verdict.false_pct }}%" data-groups="{{ verdict.dissenting_groups | join(',') }}">{{ verdict.false_count }} not</span>
+      </div>
+      <p class="note">
+        Undecided — the surviving candidates disagree.
+        {% if verdict.dissenting_groups %}The dissent comes entirely from {{ verdict.dissenting_groups | length }} indistinguishability group{{ '' if verdict.dissenting_groups | length == 1 else 's' }}; click the orange bar to highlight {{ 'it' if verdict.dissenting_groups | length == 1 else 'them' }} above.{% endif %}
+      </p>
+      <details class="block">
+        <summary>Show the suites on each side</summary>
+        <p class="mono" style="color:var(--muted);line-height:1.7">Acceptable: {{ verdict.surviving_true | join(', ') }}</p>
+        <p class="mono" style="color:var(--muted);line-height:1.7">Not acceptable: {{ verdict.surviving_false | join(', ') }}</p>
+      </details>
+      {% else %}
+      <p class="note">{{ verdict.basis }}{% if verdict.outcome is not none %} — outcome <strong>{{ verdict.outcome }}</strong>{% endif %}, without identifying the cipher.</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+    <details class="block">
+      <summary>All {{ block.surviving_count }} surviving suite names</summary>
+      <p class="mono" style="color:var(--muted);line-height:1.7">{{ block.surviving | join(', ') }}</p>
+    </details>
+
+    <details class="block">
+      <summary>Eliminated candidates &mdash; per-tunnel evidence</summary>
+      {% for member in block.members %}
+      <p class="fld" style="color:var(--faint);margin-bottom:var(--sp-1)">{{ member.sa_id }}</p>
+      {% if member.eliminated %}
+      <table>
+        <tr><th>Suite</th><th>Reason</th></tr>
+        {% for suite, reason in member.eliminated %}
+        <tr><td class="mono">{{ suite }}</td><td>{{ reason }}</td></tr>
+        {% endfor %}
+      </table>
+      {% else %}
+      <p class="empty-note">Nothing eliminated for this tunnel.</p>
+      {% endif %}
+      {% endfor %}
+    </details>
+    {% else %}
+    <p class="empty-note">No ESP candidate set survived for this tunnel.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
   {% else %}
-  <div class="empty-note">No ESP data-plane traffic was observed in this capture — nothing to narrow. (This capture may be an IKE-handshake-only vector; see the coverage section above.)</div>
+  <div class="card">
+    <div class="empty-note">No ESP data-plane traffic was observed in this capture.</div>
+    <div class="empty-note">No ESP candidate set survived, so no risk verdict could be lifted.</div>
+  </div>
   {% endif %}
 </section>
 
 <section id="claims">
-  <h2>Claims ({{ doc.claims|length }})</h2>
-  <details>
-    <summary>Show all {{ doc.claims|length }} claims</summary>
-    {% if doc.claims %}
+  <h2>Evidence <span class="count">{{ doc.claims | length }} claims · {{ frame_index | length }} frames cited</span></h2>
+  <div class="card">
+    <div class="chips" id="tierfilter">
+      <button class="chip" type="button" aria-pressed="true" data-tier-filter="all">All tiers</button>
+      {% for entry in tier_summary %}
+      <button class="chip" type="button" aria-pressed="false" data-tier-filter="{{ entry.tier }}"><i style="background:{{ entry.color }}"></i>{{ entry.label }} · {{ entry.count }}<span class="tier-enum"> {{ entry.tier }}</span></button>
+      {% endfor %}
+    </div>
+
+    <details class="block" id="about-tiers">
+      <summary>What do these provenance tiers mean?</summary>
+      <div class="panes">
+        {% for entry in tier_summary %}
+        <div class="concept">
+          <div class="explain-body" style="padding-left:0">
+            <p style="color:var(--fg);font-weight:560;margin-bottom:var(--sp-1)">
+              <span class="explain-state" style="background:{{ entry.color }}"></span>
+              {{ entry.label }} <span class="mono" style="color:var(--faint)">{{ entry.tier }}</span>
+            </p>
+            <p>{{ entry.explanation }}</p>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+
+    {% if claim_rows %}
     <table>
-      <tr><th>Field</th><th>Value</th><th>Tier</th><th>Confidence</th><th>Method</th><th>Frames</th></tr>
-      {% for c in doc.claims %}
-      <tr>
-        <td class="mono">{{ c.field }}</td>
-        <td class="mono">
-          {% if c.value is mapping and "name" in c.value %}
-            {{ c.value.name }}
-            <span class="caveat" style="margin:0;">(id {{ c.value.transform_id }}{% if c.value.key_length %}, {{ c.value.key_length }}-bit{% endif %})</span>
-          {% elif c.value is none %}
-            —
-          {% else %}
-            {{ c.value }}
-          {% endif %}
+      <tr><th>Field</th><th>Value</th><th>How we know</th><th>Evidence</th><th></th></tr>
+      {% for row in claim_rows %}
+      <tr data-tier="{{ row.tier }}">
+        <td class="fld">{{ row.claim.field }}{% if row.occurrences > 1 %}<span class="xn">&times;{{ row.occurrences }}</span>{% endif %}</td>
+        <td class="val">{{ value_cell(row.claim.value) }}</td>
+        <td>
+          {{ tier_badge(row.tier) }}
+          <div class="cav">{{ row.claim.method }}{% if row.claim.confidence is not none %} · confidence {{ row.claim.confidence }}{% endif %}</div>
+          {% for caveat in row.claim.caveats %}<div class="cav">{{ caveat }}</div>{% endfor %}
         </td>
-        <td><span class="badge" style="background:{{ tier_colors.get(c.tier, '#5f6368') }}">{{ c.tier }}</span></td>
-        <td>{{ c.confidence if c.confidence is not none else "—" }}</td>
-        <td class="mono">{{ c.method }}</td>
-        <td>{% for frame in c.evidence %}<a class="frame-link" href="#frame-{{ frame }}">{{ frame }}</a>{% endfor %}</td>
+        <td>{{ frames(row.evidence, row.frame_ranges) }}</td>
+        <td><button class="mini" type="button" data-copy="{{ row.json }}" title="Copy this claim as JSON">json</button></td>
       </tr>
-      {% if c.caveats %}
-      <tr><td></td><td colspan="5" class="caveat">{{ c.caveats|join(" — ") }}</td></tr>
-      {% endif %}
       {% endfor %}
     </table>
     {% else %}
-    <div class="empty-note">No claims were produced for this capture.</div>
+    <div class="empty-note">No claims were produced from this capture.</div>
     {% endif %}
-  </details>
+  </div>
 </section>
 
-<section id="frame-index">
-  <h2>Frame evidence index</h2>
-  <details>
-    <summary>Show all {{ frame_index|length }} cited frames</summary>
+<section id="frames">
+  <h2>Frame index <span class="count">{{ frame_index | length }} cited</span></h2>
+  <div class="card">
     {% if frame_index %}
-    <table>
-      <tr><th>Frame</th><th>Cited by</th></tr>
-      {% for entry in frame_index %}
-      <tr id="frame-{{ entry.frame }}">
-        <td class="mono">{{ entry.frame }}</td>
-        <td>{{ entry.citations|join("; ") }}</td>
-      </tr>
-      {% endfor %}
-    </table>
+    <details class="block">
+      <summary>Show every cited frame and what cites it</summary>
+      <table>
+        <tr><th>Frame</th><th>Cited by</th></tr>
+        {% for entry in frame_index %}
+        <tr id="frame-{{ entry.frame }}" data-frame="{{ entry.frame }}">
+          <td class="mono">{{ entry.frame }}</td>
+          <td>{{ entry.citations | join('; ') }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </details>
     {% else %}
-    <div class="empty-note">No claims or findings cite a frame number.</div>
+    <div class="empty-note">No frame was cited as evidence by any claim or finding.</div>
     {% endif %}
-  </details>
+  </div>
 </section>
 
 </main>
 
 <footer>
-  Generated by ipsec-analyzer · findings.json schema {{ doc.schema_version }} · report opens standalone, no network access required.
+  <span>Generated by ipsec-analyzer · findings.json schema {{ doc.schema_version }} · opens standalone, no network access required.</span>
+  <span class="toolbar"><button class="mini" type="button" id="dl-json">download findings.json</button></span>
 </footer>
+
+<script type="application/json" id="findings-data">{{ embedded_json | safe }}</script>
+<script>
+/* Additive only. Every value above is already in the markup; this filters,
+   highlights and copies what is there. With scripting disabled the report
+   is complete and readable. */
+(function () {
+  "use strict";
+
+  /* --- provenance filter: dims the whole document, not one table --- */
+  var filter = document.getElementById("tierfilter");
+  if (filter) {
+    var chips = filter.querySelectorAll("[data-tier-filter]");
+    var targets = document.querySelectorAll("[data-tier]");
+    chips.forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        var want = chip.getAttribute("data-tier-filter");
+        chips.forEach(function (other) {
+          other.setAttribute("aria-pressed", String(other === chip));
+        });
+        targets.forEach(function (node) {
+          if (node.closest("[data-tier-filter]")) { return; }
+          var match = want === "all" || node.getAttribute("data-tier") === want;
+          node.classList.toggle("dimmed", !match);
+        });
+      });
+    });
+  }
+
+  /* --- checks grid -> explanation pane ---------------------------------
+     The panes are ordinary <details> and work on their own with no
+     scripting; this makes the grid cells above drive them. */
+  var cells = document.querySelectorAll("[data-explain]");
+  cells.forEach(function (cell) {
+    cell.addEventListener("click", function () {
+      var pane = document.getElementById("expl-" + cell.getAttribute("data-explain"));
+      if (!pane) { return; }
+      var opening = !pane.open;
+      document.querySelectorAll(".explain[open]").forEach(function (other) {
+        if (other !== pane) { other.open = false; }
+      });
+      cells.forEach(function (other) { other.setAttribute("aria-expanded", "false"); });
+      pane.open = opening;
+      cell.setAttribute("aria-expanded", String(opening));
+      if (opening) { pane.scrollIntoView({ block: "nearest" }); }
+    });
+  });
+  /* Keep the cells honest if someone opens a pane directly. */
+  document.querySelectorAll(".explain").forEach(function (pane) {
+    pane.addEventListener("toggle", function () {
+      var id = pane.id.replace(/^expl-/, "");
+      var cell = document.querySelector('[data-explain="' + id + '"]');
+      if (cell) { cell.setAttribute("aria-expanded", String(pane.open)); }
+    });
+  });
+
+  /* --- two-way frame <-> claim highlighting --- */
+  function clearHighlights() {
+    document.querySelectorAll(".highlight").forEach(function (node) {
+      node.classList.remove("highlight");
+    });
+  }
+  document.querySelectorAll("[data-frames]").forEach(function (link) {
+    link.addEventListener("click", function () {
+      clearHighlights();
+      link.getAttribute("data-frames").split(",").forEach(function (frame) {
+        var row = document.getElementById("frame-" + frame.trim());
+        if (row) {
+          row.classList.add("highlight");
+          var holder = row.closest("details");
+          if (holder) { holder.open = true; }
+        }
+      });
+    });
+  });
+  document.querySelectorAll("tr[data-frame]").forEach(function (row) {
+    row.addEventListener("click", function () {
+      var frame = row.getAttribute("data-frame");
+      clearHighlights();
+      document.querySelectorAll("[data-frames]").forEach(function (link) {
+        if (link.getAttribute("data-frames").split(",").indexOf(frame) !== -1) {
+          var host = link.closest("tr") || link.closest(".finding");
+          if (host) { host.classList.add("highlight"); }
+        }
+      });
+    });
+  });
+
+  /* --- verdict dissent -> which indistinguishability group drives it --- */
+  document.querySelectorAll("[data-groups]").forEach(function (bar) {
+    bar.addEventListener("click", function () {
+      document.querySelectorAll(".indist-group").forEach(function (group) {
+        group.classList.remove("is-dissenting");
+      });
+      var raw = bar.getAttribute("data-groups");
+      if (!raw) { return; }
+      raw.split(",").forEach(function (position) {
+        var group = document.getElementById("grp-" + position.trim());
+        if (group) {
+          group.classList.add("is-dissenting");
+          group.open = true;
+        }
+      });
+    });
+  });
+
+  /* --- copy affordances --- */
+  document.querySelectorAll("[data-copy]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var text = button.getAttribute("data-copy");
+      var done = function () {
+        var was = button.textContent;
+        button.textContent = "copied";
+        setTimeout(function () { button.textContent = was; }, 1200);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () {});
+      }
+    });
+  });
+
+  /* --- download the embedded document; no network, no second file --- */
+  var download = document.getElementById("dl-json");
+  var data = document.getElementById("findings-data");
+  if (download && data) {
+    download.addEventListener("click", function () {
+      var blob = new Blob([data.textContent], { type: "application/json" });
+      var url = URL.createObjectURL(blob);
+      var anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "findings.json";
+      anchor.click();
+      URL.revokeObjectURL(url);
+    });
+  }
+})();
+</script>
 
 </body>
 </html>

@@ -4,6 +4,15 @@ Phase 6; ARCHITECTURE.md §5's schema, amended twice since being frozen at
 (`passes[]` added, `detail` removal noted there as well) for the disclosed
 deviations from the original sketch.
 
+Amendment (explanations pass): a top-level `rules` catalogue was added,
+keyed by rule id, carrying each rule's plain-language `explanation` and
+its `references`. It lives at the top level rather than being copied onto
+every `findings[]`/`passes[]`/`gaps[]` entry because the text is
+per-rule, not per-result — repeating it on each entry would write the
+same paragraph three times for one rule on a multi-tunnel capture. It
+also makes the document self-describing: a consumer can render a rule
+without shipping its own copy of rules.yaml.
+
 Deliberately imports nothing project-local — `tests/test_import_graph.py`
 has enforced `"output": set()` since before this package existed, matching
 ARCHITECTURE.md §1's dependency-rule paragraph verbatim: "`output` imports
@@ -34,6 +43,7 @@ def assemble_findings_document(
     passes: list[dict],
     gaps: list[dict],
     verdicts: list[dict],
+    rules: dict[str, dict],
 ) -> dict:
     """Bundles already-plain pieces into the ARCHITECTURE.md §5 shape
     (amended — see module docstring). Takes plain dicts/lists, not typed
@@ -49,6 +59,7 @@ def assemble_findings_document(
         "passes": passes,
         "gaps": gaps,
         "verdicts": verdicts,
+        "rules": rules,
     }
 
 

@@ -13,6 +13,26 @@ Amendment beyond MVP_BUILD_PROMPT.md's literal schema list (`id`,
 sketch (§5) shows a `title` on every finding, distinct from
 `recommendation`, and there's no way to produce one without it.
 
+Amendment (report pass): `passed_title` added. `title` names the problem
+("NULL encryption in use for ESP"), which is the right phrasing for a
+finding and exactly the wrong one for a `PassedCheck` — the report's
+largest table was a list of problem strings that all meant "fine", so a
+reader skimming it saw a breach report. `passed_title` is the same rule's
+*negative* phrasing ("NULL encryption ruled out for ESP"). It lives here,
+beside the rule it describes, rather than as a rule_id -> phrasing map in
+`output/`: that map would be a second copy of knowledge that already has
+a home, free to drift out of sync with the rule it claims to describe.
+
+Amendment (explanations pass): `explanation` added. The report's checks
+grid names 15 rules in three or four words each, which tells a reader
+what was checked but not what it means or why it matters. `explanation`
+is the long-form, plain-language version, and it describes the **check**,
+never a particular capture's result — capture-specific text already has
+homes (`recommendation`, a gap's `reason`, a claim's caveats). Keeping
+that boundary is what stops an explanation from becoming a finding
+without a provenance tier. Authored text, marked `# VERIFY BY HAND` in
+rules.yaml on the same standard as core/constants.py.
+
 Amendment (Phase 5a review fix #2): `gap_kind` added. A coverage gap
 without a reason a human can act on ("not observed" could mean "this
 capture didn't have it" or "no capture ever could") is a worse artifact
@@ -81,6 +101,8 @@ class Condition:
 class Rule:
     id: str
     title: str
+    passed_title: str   # the same rule's negative phrasing, for a PassedCheck
+    explanation: str    # plain-language description of the CHECK, not of any capture
     target: str          # dotted field path into the ClaimLedger
     min_tier: Tier
     condition: Condition
@@ -98,13 +120,26 @@ class Rule:
             )
 
     def render(self, template: str, raw_value: Any) -> str:
-        """Fills a `{value}` placeholder in `title`/`recommendation` with
+        """Fills a `{value}` placeholder in `title`/`passed_title`/`recommendation` with
         `raw_value` — relabeled via `value_labels` when the rule defines
         one (e.g. `partial_downgrade_protection` naming "the responder"
         instead of printing the raw enum string) — so this is generically
         available to any rule, not special-cased to one.
         """
-        label = self.value_labels.get(raw_value, str(raw_value))
+        try:
+            label = self.value_labels.get(raw_value, str(raw_value))
+        except TypeError:
+            # `raw_value` is unhashable, so it cannot be a `value_labels`
+            # key and there is nothing to relabel. This is reachable when a
+            # rule's condition has no `field` and the claim's value is a
+            # collection — `truncated_96_bit_icv` targets `esp.icv_len`,
+            # which carries every plausible ICV length. It holds today only
+            # because that claim is built as a `tuple` (hashable) rather
+            # than a `set`; nothing enforced that, so an estimator switching
+            # to a set would have crashed report generation on exactly the
+            # captures the rule exists to flag. Guarded rather than
+            # documented as a constraint on claim authors.
+            label = str(raw_value)
         try:
             return template.format(value=label)
         except (KeyError, IndexError):
@@ -113,8 +148,8 @@ class Rule:
 
 _REQUIRED_KEYS = frozenset(
     {
-        "id", "title", "target", "min_tier", "condition", "severity", "category", "references",
-        "recommendation", "gap_kind",
+        "id", "title", "passed_title", "explanation", "target", "min_tier", "condition",
+        "severity", "category", "references", "recommendation", "gap_kind",
     }
 )
 
@@ -142,6 +177,8 @@ def _parse_rule(raw: dict) -> Rule:
     return Rule(
         id=rule_id,
         title=raw["title"],
+        passed_title=raw["passed_title"],
+        explanation=raw["explanation"],
         target=raw["target"],
         min_tier=min_tier,
         condition=_parse_condition(raw["condition"], rule_id),

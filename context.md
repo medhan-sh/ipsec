@@ -87,13 +87,16 @@ Plus: no async/streaming, no network calls at runtime ever,
 | 6b | Report output fix pass (negative claims, `PassedCheck`, transform names) | ✅ |
 | 6c | Packaging + CLI ergonomics (`./ipsec-analyze`, `Makefile`, baked image) | ✅ |
 | 6d | GCD estimator abstention-reason pass (`gcd_estimator.py` returns *why*, not bare `None`) | ✅ |
+| 6e | Report interaction + presentation pass (view model, tier filter, gap framing, inline JS) | ✅ |
+| 6f | Plain-language explanations for all 15 checks, 5 tiers, 3 gap kinds | ✅ |
 
-`MVP_BUILD_PROMPT.md` names no phase beyond 6. Phases 5a/6a/6b/6c/6d were
-review-driven correctness passes, not new scope.
+`MVP_BUILD_PROMPT.md` names no phase beyond 6. Phases 5a/6a/6b/6c/6d/6e/6f
+were review- and presentation-driven passes, not new scope.
 
-**Tests: `544 passed in 12.21s`** — observed by running `make test` on
-2026-09-21 (Phase 6d), up from 540 in `reports/phase-6c.md`'s figure (4
-new tests for the GCD abstention-reason split — see `reports/phase-6d.md`).
+**Tests: `587 passed in 14.58s`** — observed by running `make test` on
+2026-09-22 (Phase 6f), up from 568 after 6e (19 new tests for the
+explanation panes, the tier/gap-kind sync checks, and the authoring
+discipline the explanations must hold to — see `reports/phase-6f.md`).
 
 Source: ~4,100 LOC across `src/ipsec_analyzer/`; ~3,600 LOC of tests.
 
@@ -216,13 +219,18 @@ table), or a `CoverageGap` (`min_tier` unmet). Headline: "15 rules total
 `confidentiality_acceptable` / `integrity_acceptable` across each
 surviving candidate set.
 
-**Output (F11 subset, Phase 6).** `findings.json` at frozen
-`schema_version: "1.0"`, and one HTML file with no `<script>`, no
-`<link>`, no `http(s)://` reference anywhere — collapsible sections use
-`<details>`. Tier colour-coding with a legend; every finding's evidence
-frame numbers are in-page anchors into a frame-evidence index; candidate
-sets rendered as sets with `indistinguishable` groups called out
-explicitly.
+**Output (F11 subset, Phase 6 + 6e).** `findings.json` at frozen
+`schema_version: "1.0"`, and one self-contained HTML file with no
+`<link>`, no `<script src>`, no network API and no `http(s)://`
+reference anywhere. Since 6e the report renders a *view model*
+(`output/report.py`) rather than the raw document: identical ESP tunnels,
+identical claims and per-claim passed checks each collapse to one
+reading, losslessly — per-tunnel evidence is preserved. Coverage gaps are
+grouped and framed by `gap_kind`; capture-integrity signals are surfaced;
+and a small inline script adds a provenance filter, two-way
+frame<->claim highlighting, copy-as-JSON and an embedded-document
+download. The script is additive — every value is in the markup and the
+report is complete with scripting disabled.
 
 **Reference result** (`captures/weberblog_ikev2.pcap`): `15 rules total
 — 0 found, 11 passed, 4 gaps`; four ESP tunnels each at `42 of 44`
@@ -288,6 +296,20 @@ Phase 6a).
   claims (multi-tunnel) counts once for the headline; a rule that both
   fires and passes across different tunnels resolves to one outcome.
   Disclosed in `reports/phase-6b.md`.
+- **The 24 plain-language explanations added in Phase 6f are unreviewed.**
+  They make factual claims about protocol behaviour and read with uniform
+  confidence regardless of correctness. Every citation is inherited from
+  the rule being explained and no new RFC numbers were introduced, but
+  that bounds the risk rather than checking it. Same standing status as
+  `core/constants.py`'s framing table — see `reports/phase-6f.md`.
+- **Coverage-gap cells in the checks grid still carry the rule's
+  problem-shaped title** ("64-bit block cipher family in use for ESP"
+  where the honest state is ignorance). Phase 6f mitigated this — the
+  cell's explanation pane now says at length why the gap happened — but
+  the label itself is unchanged.
+- **Copy-to-clipboard in the report silently no-ops** where
+  `navigator.clipboard` is unavailable — which includes `file://` pages in
+  some browsers, the usual way this report is opened.
 - **`./ipsec-analyze` does not detect a stale image** (see §5).
 - **The `--user` uid/gid mapping is verified at the mechanism level
   only**, never on a real Linux host (this machine is macOS).
