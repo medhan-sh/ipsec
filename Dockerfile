@@ -42,7 +42,7 @@ WORKDIR /build
 # rather than `pip install .` at this stage, since that would need `src/`
 # already present and would defeat this layer's own caching purpose.
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir scapy pyyaml jinja2 pytest
+RUN pip install --no-cache-dir scapy pyyaml jinja2 pytest textual
 
 # The package itself, installed properly into site-packages so the
 # `ipsec-analyze` console script (registered in pyproject.toml's
