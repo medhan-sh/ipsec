@@ -8,6 +8,8 @@ services:
       - .:/work
     working_dir: /work
     entrypoint: ["ipsec-analyze"]
+    environment:
+      - PYTHONPATH=/work/src
 
   tui:
     build:
@@ -21,6 +23,7 @@ services:
     stdin_open: true
     tty: true
     environment:
+      - PYTHONPATH=/work/src
       - TERM=xterm-256color
       - LANG=C.UTF-8
       - LC_ALL=C.UTF-8
@@ -35,3 +38,5 @@ services:
     working_dir: /work
     entrypoint: ["pytest"]
     command: ["tests/", "-v"]
+    environment:
+      - PYTHONPATH=/work/src

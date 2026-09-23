@@ -7,26 +7,26 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE="ipsec-analyzer:dev"
 
-# 1. Check if local Python with 'textual' is available
-if [ -f "$SCRIPT_DIR/.venv/bin/python" ] && "$SCRIPT_DIR/.venv/bin/python" -c "import textual" >/dev/null 2>&1; then
+# 1. Check if local Python with 'textual' and core dependencies is available
+if [ -f "$SCRIPT_DIR/.venv/bin/python" ] && "$SCRIPT_DIR/.venv/bin/python" -c "import textual, scapy, yaml, jinja2" >/dev/null 2>&1; then
     PYTHON="$SCRIPT_DIR/.venv/bin/python"
     export PYTHONPATH="$SCRIPT_DIR/src:${PYTHONPATH}"
     exec "$PYTHON" -m ipsec_analyzer.tui.app "$@"
-elif command -v python3 >/dev/null 2>&1 && python3 -c "import textual" >/dev/null 2>&1; then
+elif command -v python3 >/dev/null 2>&1 && python3 -c "import textual, scapy, yaml, jinja2" >/dev/null 2>&1; then
     PYTHON="python3"
     export PYTHONPATH="$SCRIPT_DIR/src:${PYTHONPATH}"
     exec "$PYTHON" -m ipsec_analyzer.tui.app "$@"
 elif command -v docker >/dev/null 2>&1; then
     # 2. Fall back to Docker interactive container
-    if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-        echo "ipsec-tui: building image (first run only)..." >&2
+    if ! docker image inspect "$IMAGE" >/dev/null 2>&1 || ! docker run --rm "$IMAGE" python3 -c "import ipsec_analyzer.tui" >/dev/null 2>&1; then
+        echo "ipsec-tui: building/updating Docker image '$IMAGE'..." >&2
         docker build -t "$IMAGE" "$SCRIPT_DIR"
     fi
     docker_user_args=()
     if [ "$(uname -s)" = "Linux" ]; then
         docker_user_args=(--user "$(id -u):$(id -g)")
     fi
-    exec docker run -it --rm "${docker_user_args[@]}" -v "$PWD":/work -w /work --entrypoint ipsec-tui "$IMAGE" "$@"
+    exec docker run -it --rm "${docker_user_args[@]}" -v "$PWD":/work -w /work -e PYTHONPATH=/work/src "$IMAGE" ipsec-tui "$@"
 else
     echo "ipsec-tui: Neither python3 with 'textual' nor 'docker' was found." >&2
     echo "To run locally, install dependencies into .venv: pip install -e ." >&2

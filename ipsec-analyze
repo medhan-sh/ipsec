@@ -137,4 +137,4 @@ if [ -t 1 ]; then
     tty_args=(-t)
 fi
 
-exec docker run --rm "${tty_args[@]}" "${docker_user_args[@]}" -v "$PWD":/work -w /work "$IMAGE" "$@"
+exec docker run --rm "${tty_args[@]}" "${docker_user_args[@]}" -v "$PWD":/work -w /work -e PYTHONPATH=/work/src "$IMAGE" "$@"

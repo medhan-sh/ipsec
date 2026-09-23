@@ -1,6 +1,10 @@
 #!/bin/sh
 set -e
 
+if [ -d "/work/src" ]; then
+    export PYTHONPATH="/work/src:${PYTHONPATH}"
+fi
+
 case "$1" in
     ipsec-tui)
         shift

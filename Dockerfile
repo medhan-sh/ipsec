@@ -14,7 +14,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
-    TERM=xterm-256color
+    TERM=xterm-256color \
+    PYTHONPATH=/work/src
 
 # Pinned for reproducibility. Update deliberately, not silently, if tshark's
 # `-T json` output shape ever needs to be re-baselined against a newer
