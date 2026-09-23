@@ -400,3 +400,147 @@ class TestCliMain:
         assert custom_json.exists()
         assert not (tmp_path / "http.report.html").exists()
         assert not (tmp_path / "http.findings.json").exists()
+
+
+class TestTerminalProgress:
+    """The run's terminal output. The marker vocabulary carries the same
+    distinction the rest of the tool is built on, so it is tested, not
+    left to look right by eye.
+    """
+
+    def _reporter(self, **kwargs):
+        import io
+
+        from ipsec_analyzer.cli import TerminalProgress
+
+        stream = io.StringIO()
+        return TerminalProgress(stream=stream, **kwargs), stream
+
+    def test_analyze_capture_is_silent_by_default(self, capsys):
+        # Every test in this suite calls analyze_capture as a library;
+        # none of them should be printing a progress display.
+        analyze_capture(str(CAPTURES / "weberblog_ikev2.pcap"))
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
+
+    def test_no_ansi_when_the_stream_is_not_a_tty(self):
+        reporter, stream = self._reporter()
+        reporter.header("x.pcap")
+        reporter.stage("ingest")
+        reporter.ok("packets read", "197")
+        assert "\033[" not in stream.getvalue()
+
+    def test_no_color_env_var_suppresses_colour(self, monkeypatch):
+        monkeypatch.setenv("NO_COLOR", "1")
+        reporter, stream = self._reporter()
+        reporter.ok("packets read", "197")
+        assert "\033[" not in stream.getvalue()
+
+    def test_colour_is_emitted_when_asked_for(self):
+        reporter, stream = self._reporter(color=True)
+        reporter.ok("packets read", "197")
+        assert "\033[32m" in stream.getvalue()
+
+    def test_an_abstention_never_renders_as_a_success_marker(self):
+        # The property that matters: a tool built on distinguishing
+        # "determined" from "could not tell" must not collapse the two
+        # into one green tick the moment it prints to a terminal.
+        reporter, stream = self._reporter()
+        reporter.ok("resolved thing", "8-byte alignment")
+        reporter.skip("unresolved thing", "not determinable")
+        lines = [line for line in stream.getvalue().splitlines() if line.strip()]
+        ok_line = next(line for line in lines if "resolved thing" in line and "unresolved" not in line)
+        skip_line = next(line for line in lines if "unresolved thing" in line)
+        assert ok_line.strip()[0] != skip_line.strip()[0], (
+            "an abstention must not share a marker with a success"
+        )
+
+    def test_label_and_detail_are_always_separated(self):
+        # `confidentiality_acceptable` is longer than the label column and
+        # previously ran straight into its own detail text.
+        reporter, stream = self._reporter()
+        reporter.skip("confidentiality_acceptable", "undecided")
+        assert "confidentiality_acceptable  undecided" in stream.getvalue()
+
+    def test_an_overlong_detail_is_truncated(self):
+        # The line no longer *ends* with the detail — an elapsed time is
+        # right-aligned after it — so the ellipsis is mid-line now.
+        reporter, stream = self._reporter(width=80)
+        reporter.skip("granularity", "x" * 200)
+        line = stream.getvalue().rstrip("\n")
+        assert "…" in line
+        assert "x" * 200 not in line
+        assert len(line) <= 80
+
+    def test_markers_fall_back_to_ascii_when_unencodable(self):
+        import io
+
+        from ipsec_analyzer.cli import TerminalProgress
+
+        class AsciiStream(io.StringIO):
+            encoding = "ascii"
+
+        stream = AsciiStream()
+        TerminalProgress(stream=stream).ok("packets read", "197")
+        value = stream.getvalue()
+        assert "✓" not in value
+        assert "+" in value
+
+    def test_a_finding_is_reported_as_a_failure_marker(self):
+        from ipsec_analyzer.cli import TerminalProgress
+
+        import io
+
+        stream = io.StringIO()
+        analyze_capture(
+            str(CAPTURES / "ikev2-decrypt-3des-sha1_160.pcap"),
+            progress=TerminalProgress(stream=stream, color=False),
+        )
+        value = stream.getvalue()
+        assert "Weak IKE SA cipher (DES / 3DES)" in value
+        assert "HIGH" in value
+
+    def test_identical_verdicts_collapse_in_the_terminal_too(self):
+        from ipsec_analyzer.cli import TerminalProgress
+
+        import io
+
+        stream = io.StringIO()
+        analyze_capture(
+            str(CAPTURES / "weberblog_ikev2.pcap"),
+            progress=TerminalProgress(stream=stream, color=False),
+        )
+        value = stream.getvalue()
+        # Four tunnels, one shared outcome per predicate.
+        assert value.count("confidentiality_acceptable") == 1
+        assert "×4" in value
+
+    def test_a_timed_row_is_right_aligned_to_the_terminal_width(self):
+        reporter, stream = self._reporter(width=80)
+        reporter.ok("packets read", "197")
+        line = stream.getvalue().rstrip("\n")
+        assert line.endswith("0.0s")
+        assert len(line) == 80
+
+    def test_alignment_measures_unpainted_width(self):
+        # ANSI escapes occupy no columns on screen but do count in len(),
+        # so padding against the painted string would misalign every timed
+        # row precisely when colour is on.
+        plain, plain_stream = self._reporter(width=80, color=False)
+        painted, painted_stream = self._reporter(width=80, color=True)
+        plain.ok("packets read", "197")
+        painted.ok("packets read", "197")
+        import re
+
+        stripped = re.sub(r"\033\[[0-9;]*m", "", painted_stream.getvalue())
+        assert stripped == plain_stream.getvalue()
+
+    def test_output_paths_are_never_truncated(self):
+        # Truncation is for caveat prose written for the report. A path the
+        # operator has to open must be printed whole, however long the
+        # directory happens to be.
+        reporter, stream = self._reporter()
+        long_path = "/" + "/".join(["a-rather-long-directory-name"] * 6) + "/x.report.html"
+        reporter.ok("report", long_path, truncate=False)
+        assert long_path in stream.getvalue()

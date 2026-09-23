@@ -89,14 +89,14 @@ Plus: no async/streaming, no network calls at runtime ever,
 | 6d | GCD estimator abstention-reason pass (`gcd_estimator.py` returns *why*, not bare `None`) | ✅ |
 | 6e | Report interaction + presentation pass (view model, tier filter, gap framing, inline JS) | ✅ |
 | 6f | Plain-language explanations for all 15 checks, 5 tiers, 3 gap kinds | ✅ |
+| 6g | Verbose CLI run output (Compose-style staged progress, honest markers); PATH symlink support; demo-facing report polish | ✅ |
 
-`MVP_BUILD_PROMPT.md` names no phase beyond 6. Phases 5a/6a/6b/6c/6d/6e/6f
+`MVP_BUILD_PROMPT.md` names no phase beyond 6. Phases 5a/6a/6b/6c/6d/6e/6f/6g
 were review- and presentation-driven passes, not new scope.
 
-**Tests: `587 passed in 14.58s`** — observed by running `make test` on
-2026-09-22 (Phase 6f), up from 568 after 6e (19 new tests for the
-explanation panes, the tier/gap-kind sync checks, and the authoring
-discipline the explanations must hold to — see `reports/phase-6f.md`).
+**Tests: `600 passed in 17.47s`** — observed by running `make test` on
+2026-09-22 (Phase 6g), up from 587 after 6f (13 new tests for the
+terminal progress reporter — see `reports/phase-6g.md`).
 
 Source: ~4,100 LOC across `src/ipsec_analyzer/`; ~3,600 LOC of tests.
 
