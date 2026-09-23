@@ -1,0 +1,285 @@
+"""Frozen contract. Do not modify without asking — see CLAUDE.md invariant 8 (§2 of MVP_BUILD_PROMPT.md).
+
+Every framing constant below (explicit_iv, pad_granularity, icv_len) is a
+factual claim about a wire format, sourced to an RFC and section. A wrong
+value here silently corrupts every downstream inference, so the whole table
+is marked for hand verification — see reports/phase-0.md for the checklist.
+
+Invariant 5 (never hand-invent a framing constant): every row here traces to
+a cited RFC. Where a value was derived by combining two RFCs (e.g. a cipher
+RFC for IV/padding and a separate integrity RFC for ICV length), both are
+cited.
+
+Amendment (post Phase 1 review, logged in reports/phase-1.md addendum):
+relocated from repo root into core/ per ARCHITECTURE.md's layering, and the
+IKEv2 notify-type constants below were added — ARCHITECTURE.md names
+"SuiteFraming table, DH groups, notify types" as core/constants.py's
+contents; Phase 0 only delivered the first. Adding the notify types here
+(rather than in synth/synth_ike.py, where they were originally and
+incorrectly defined) closes that gap so Phase 2's notify_posture.py and
+Phase 1's synth_ike.py share one source of truth instead of two. No
+existing SuiteFraming row or field changed.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class SuiteFraming:
+    suite_id: str        # e.g. "AES-128-GCM-16"
+    family: str          # "cbc" | "counter"
+    explicit_iv: int     # bytes on the wire before ciphertext
+    pad_granularity: int # 16 for AES-CBC, 8 for 64-bit block CBC, 4 for counter
+    icv_len: int         # bytes
+    rfc: str             # e.g. "RFC 4106 §3"
+
+
+# VERIFY BY HAND — every row below. See reports/phase-0.md for the full
+# checklist with one line per constant for manual cross-checking against the
+# cited RFC section.
+#
+# CBC family: explicit_iv == pad_granularity == cipher block size (16 bytes
+# for AES/Camellia per RFC 3602 §2 / RFC 5529 §3.2; 8 bytes for legacy
+# 64-bit-block ciphers per RFC 2451 §3 / RFC 2405 §2). icv_len is the
+# truncated MAC length of the paired integrity transform (RFC 2404 §3,
+# RFC 2403 §3, RFC 4868 §2.3, RFC 3566 §2).
+#
+# counter/AEAD family: explicit_iv is the 8-byte wire nonce/IV field common
+# to CTR (RFC 3686 §3.1), GCM (RFC 4106 §3.1), CCM (RFC 4309 §3), and
+# ChaCha20-Poly1305 (RFC 7634 §2). pad_granularity is 4 bytes: these modes
+# have no block-chaining requirement, only the base ESP 4-byte alignment
+# (RFC 4303 §2.4). icv_len is the authentication tag length, which for
+# combined-mode ciphers is chosen at negotiation time from the values below.
+#
+# NULL encryption (RFC 2410) has a zero-length IV and a block size of 1
+# byte, so it is classified under "counter" here purely because its padding
+# arithmetic (align to 4, no chaining) matches that family's formula in
+# synth_esp.py — it is NOT an AEAD/counter-mode cipher. Flagged as an open
+# question in reports/phase-0.md for human review of this classification.
+_TABLE: tuple[SuiteFraming, ...] = (
+    # --- CBC, 16-byte block (AES, Camellia) ---
+    SuiteFraming("AES-128-CBC + HMAC-SHA1-96", "cbc", 16, 16, 12, "RFC 3602, RFC 2404"),
+    SuiteFraming("AES-128-CBC + HMAC-MD5-96", "cbc", 16, 16, 12, "RFC 3602, RFC 2403"),
+    SuiteFraming("AES-128-CBC + HMAC-SHA256-128", "cbc", 16, 16, 16, "RFC 3602, RFC 4868 §2.3"),
+    SuiteFraming("AES-128-CBC + HMAC-SHA384-192", "cbc", 16, 16, 24, "RFC 3602, RFC 4868 §2.3"),
+    SuiteFraming("AES-128-CBC + HMAC-SHA512-256", "cbc", 16, 16, 32, "RFC 3602, RFC 4868 §2.3"),
+    SuiteFraming("AES-128-CBC + AES-XCBC-96", "cbc", 16, 16, 12, "RFC 3602, RFC 3566 §2"),
+    SuiteFraming("AES-192-CBC + HMAC-SHA1-96", "cbc", 16, 16, 12, "RFC 3602, RFC 2404"),
+    SuiteFraming("AES-192-CBC + HMAC-SHA256-128", "cbc", 16, 16, 16, "RFC 3602, RFC 4868 §2.3"),
+    SuiteFraming("AES-256-CBC + HMAC-SHA1-96", "cbc", 16, 16, 12, "RFC 3602, RFC 2404"),
+    SuiteFraming("AES-256-CBC + HMAC-SHA256-128", "cbc", 16, 16, 16, "RFC 3602, RFC 4868 §2.3"),
+    SuiteFraming("AES-256-CBC + HMAC-SHA384-192", "cbc", 16, 16, 24, "RFC 3602, RFC 4868 §2.3"),
+    SuiteFraming("AES-256-CBC + HMAC-SHA512-256", "cbc", 16, 16, 32, "RFC 3602, RFC 4868 §2.3"),
+    SuiteFraming("AES-256-CBC + AES-XCBC-96", "cbc", 16, 16, 12, "RFC 3602, RFC 3566 §2"),
+    SuiteFraming("Camellia-128-CBC + HMAC-SHA1-96", "cbc", 16, 16, 12, "RFC 5529 §3.2, RFC 2404"),
+    SuiteFraming("Camellia-256-CBC + HMAC-SHA256-128", "cbc", 16, 16, 16, "RFC 5529 §3.2, RFC 4868 §2.3"),
+
+    # --- CBC, 8-byte block (legacy 64-bit block ciphers) ---
+    SuiteFraming("3DES-CBC + HMAC-SHA1-96", "cbc", 8, 8, 12, "RFC 2451 §3, RFC 2404"),
+    SuiteFraming("3DES-CBC + HMAC-MD5-96", "cbc", 8, 8, 12, "RFC 2451 §3, RFC 2403"),
+    SuiteFraming("3DES-CBC + HMAC-SHA256-128", "cbc", 8, 8, 16, "RFC 2451 §3, RFC 4868 §2.3"),
+    SuiteFraming("DES-CBC + HMAC-MD5-96", "cbc", 8, 8, 12, "RFC 2405 §2, RFC 2403"),
+    SuiteFraming("DES-CBC + HMAC-SHA1-96", "cbc", 8, 8, 12, "RFC 2405 §2, RFC 2404"),
+    SuiteFraming("CAST-128-CBC + HMAC-SHA1-96", "cbc", 8, 8, 12, "RFC 2451 §3, RFC 2404"),
+    SuiteFraming("Blowfish-CBC + HMAC-SHA1-96", "cbc", 8, 8, 12, "RFC 2451 §3, RFC 2404"),
+    SuiteFraming("IDEA-CBC + HMAC-SHA1-96", "cbc", 8, 8, 12, "RFC 2451 §3, RFC 2404"),
+
+    # --- NULL encryption (see classification caveat above) ---
+    SuiteFraming("NULL-ENC + HMAC-SHA1-96", "counter", 0, 4, 12, "RFC 2410, RFC 2404"),
+    SuiteFraming("NULL-ENC + HMAC-SHA256-128", "counter", 0, 4, 16, "RFC 2410, RFC 4868 §2.3"),
+
+    # --- Counter / AEAD ---
+    SuiteFraming("AES-128-GCM-16", "counter", 8, 4, 16, "RFC 4106 §3"),
+    SuiteFraming("AES-128-GCM-12", "counter", 8, 4, 12, "RFC 4106 §3"),
+    SuiteFraming("AES-128-GCM-8", "counter", 8, 4, 8, "RFC 4106 §3"),
+    SuiteFraming("AES-192-GCM-16", "counter", 8, 4, 16, "RFC 4106 §3"),
+    SuiteFraming("AES-192-GCM-12", "counter", 8, 4, 12, "RFC 4106 §3"),
+    SuiteFraming("AES-256-GCM-16", "counter", 8, 4, 16, "RFC 4106 §3"),
+    SuiteFraming("AES-256-GCM-12", "counter", 8, 4, 12, "RFC 4106 §3"),
+    SuiteFraming("AES-256-GCM-8", "counter", 8, 4, 8, "RFC 4106 §3"),
+    SuiteFraming("AES-128-CCM-16", "counter", 8, 4, 16, "RFC 4309 §3"),
+    SuiteFraming("AES-128-CCM-12", "counter", 8, 4, 12, "RFC 4309 §3"),
+    SuiteFraming("AES-128-CCM-8", "counter", 8, 4, 8, "RFC 4309 §3"),
+    SuiteFraming("AES-256-CCM-16", "counter", 8, 4, 16, "RFC 4309 §3"),
+    SuiteFraming("AES-256-CCM-12", "counter", 8, 4, 12, "RFC 4309 §3"),
+    SuiteFraming("AES-256-CCM-8", "counter", 8, 4, 8, "RFC 4309 §3"),
+    SuiteFraming("ChaCha20-Poly1305", "counter", 8, 4, 16, "RFC 7634 §2"),
+    SuiteFraming("AES-128-CTR + HMAC-SHA1-96", "counter", 8, 4, 12, "RFC 3686 §3.1, RFC 2404"),
+    SuiteFraming("AES-128-CTR + HMAC-SHA256-128", "counter", 8, 4, 16, "RFC 3686 §3.1, RFC 4868 §2.3"),
+    SuiteFraming("AES-256-CTR + HMAC-SHA1-96", "counter", 8, 4, 12, "RFC 3686 §3.1, RFC 2404"),
+    SuiteFraming("AES-256-CTR + HMAC-SHA256-128", "counter", 8, 4, 16, "RFC 3686 §3.1, RFC 4868 §2.3"),
+)
+
+SUITE_FRAMINGS: dict[str, SuiteFraming] = {s.suite_id: s for s in _TABLE}
+
+assert len(SUITE_FRAMINGS) == len(_TABLE), "duplicate suite_id in constants table"
+
+
+# --- IKEv2 notify payload type numbers ---
+# VERIFY BY HAND, same as the framing table above: each is sourced to a
+# draft/RFC but authored from protocol knowledge, not transcribed from the
+# source document.
+
+# draft-ietf-ipsecme-ikev2-downgrade-prevention-08: carries a hash of the
+# full IKE_SA_INIT transcript; used by Phase 2 to detect downgrade attacks.
+IKE_SA_INIT_FULL_TRANSCRIPT_AUTH = 16447
+
+# RFC 9370 §4: additional key exchange in a hybrid post-quantum proposal.
+ADDITIONAL_KEY_EXCHANGE = 16441
+
+# RFC 9867 §4: postquantum preshared key (PPK) support/use signaling.
+PPK_SUPPORT = 16445
+PPK_IDENTITY_KEY = 16446
+
+
+# --- IKEv2 Diffie-Hellman transform group numbers ---
+# Amendment (Phase 2, same basis as the notify-type amendment above):
+# ARCHITECTURE.md names "SuiteFraming table, DH groups, notify types" as
+# core/constants.py's contents; this completes the second item. Values
+# given directly by MVP_BUILD_PROMPT.md Phase 2, not inferred — cited here
+# to IANA's "Transform Type 4 (D-H)" registry entries per group.
+# VERIFY BY HAND, same as the rest of this file.
+WEAK_DH_GROUPS: frozenset[int] = frozenset({
+    1,   # 768-bit MODP, RFC 2409
+    2,   # 1024-bit MODP, RFC 2409
+    5,   # 1536-bit MODP, RFC 3526
+    22,  # 1024-bit MODP w/ 160-bit prime order subgroup, RFC 5114
+    23,  # 2048-bit MODP w/ 224-bit prime order subgroup, RFC 5114
+    24,  # 2048-bit MODP w/ 256-bit prime order subgroup, RFC 5114
+})
+
+STRONG_DH_GROUPS: frozenset[int] = frozenset({
+    14,  # 2048-bit MODP, RFC 3526
+    15,  # 3072-bit MODP, RFC 3526
+    16,  # 4096-bit MODP, RFC 3526
+    17,  # 6144-bit MODP, RFC 3526
+    18,  # 8192-bit MODP, RFC 3526
+    19,  # 256-bit random ECP, RFC 5903
+    20,  # 384-bit random ECP, RFC 5903
+    21,  # 521-bit random ECP, RFC 5903
+    31,  # Curve25519, RFC 8031
+    32,  # Curve448, RFC 8031
+})
+
+
+# --- IKEv2 SA transform ID numbers (encryption, integrity) ---
+# Amendment (Phase 5, same basis as the notify-type and DH-group
+# amendments above): Phase 5's policy rules 12 and 13 ("Weak IKE SA
+# cipher", "Weak IKE SA integrity") need to classify the transform IDs
+# ike_parse.py already extracts as OBSERVED claims. Cited to IANA's
+# "Transform Type 1 (Encryption)" and "Transform Type 3 (Integrity)"
+# registries. VERIFY BY HAND, same as the rest of this file.
+WEAK_IKE_ENCRYPTION_IDS: frozenset[int] = frozenset({
+    1,   # ENCR_DES_IV64
+    2,   # ENCR_DES
+    3,   # ENCR_3DES
+    11,  # ENCR_DES_IV32
+})
+
+WEAK_IKE_INTEGRITY_IDS: frozenset[int] = frozenset({
+    1,  # AUTH_HMAC_MD5_96
+    2,  # AUTH_HMAC_SHA1_96
+    4,  # AUTH_KPDK_MD5
+    6,  # AUTH_HMAC_MD5_128
+    7,  # AUTH_HMAC_SHA1_160
+})
+
+
+# --- IKEv2 transform ID -> name tables (Phase 6b) ---
+# cli.py resolves these during its typed-to-dict conversion (findings.json
+# and the report should never show a bare integer for a negotiated
+# algorithm) — added here, not in ike_parse.py or cli.py, on the same
+# basis as every other lookup table in this file: a name mapped to a wire
+# value is a factual claim about the protocol, sourced to a registry, and
+# belongs with the rest of this project's "never invent a framing/protocol
+# constant" tables. Cited to IANA's "Internet Key Exchange Version 2
+# (IKEv2) Parameters" registry, VERIFY BY HAND, same standard as the rest
+# of this file. Deliberately not exhaustive of every registry entry ever
+# assigned — covers the values this project's own test captures and rule
+# tables (WEAK_IKE_ENCRYPTION_IDS/WEAK_IKE_INTEGRITY_IDS/WEAK_DH_GROUPS/
+# STRONG_DH_GROUPS above) actually reference, plus the immediately
+# adjacent common values in each registry; an id with no entry resolves to
+# an explicit "UNKNOWN(<id>)" in cli.py rather than a KeyError or a guess.
+
+# "Transform Type 1 - Encryption Algorithm Transform IDs".
+IKE_ENCRYPTION_NAMES: dict[int, str] = {
+    1: "ENCR_DES_IV64",
+    2: "ENCR_DES",
+    3: "ENCR_3DES",
+    4: "ENCR_RC5",
+    5: "ENCR_IDEA",
+    6: "ENCR_CAST",
+    7: "ENCR_BLOWFISH",
+    8: "ENCR_3IDEA",
+    9: "ENCR_DES_IV32",
+    11: "ENCR_NULL",
+    12: "ENCR_AES_CBC",
+    13: "ENCR_AES_CTR",
+    14: "ENCR_AES_CCM_8",
+    15: "ENCR_AES_CCM_12",
+    16: "ENCR_AES_CCM_16",
+    18: "ENCR_AES_GCM_8",
+    19: "ENCR_AES_GCM_12",
+    20: "ENCR_AES_GCM_16",
+    23: "ENCR_CAMELLIA_CBC",
+    24: "ENCR_CAMELLIA_CTR",
+    25: "ENCR_CAMELLIA_CCM_8",
+    26: "ENCR_CAMELLIA_CCM_12",
+    27: "ENCR_CAMELLIA_CCM_16",
+    28: "ENCR_CHACHA20_POLY1305",
+}
+
+# "Transform Type 2 - Pseudorandom Function Transform IDs".
+IKE_PRF_NAMES: dict[int, str] = {
+    1: "PRF_HMAC_MD5",
+    2: "PRF_HMAC_SHA1",
+    3: "PRF_HMAC_TIGER",
+    4: "PRF_AES128_XCBC",
+    5: "PRF_HMAC_SHA2_256",
+    6: "PRF_HMAC_SHA2_384",
+    7: "PRF_HMAC_SHA2_512",
+    8: "PRF_AES128_CMAC",
+}
+
+# "Transform Type 3 - Integrity Algorithm Transform IDs".
+IKE_INTEGRITY_NAMES: dict[int, str] = {
+    1: "AUTH_HMAC_MD5_96",
+    2: "AUTH_HMAC_SHA1_96",
+    3: "AUTH_DES_MAC",
+    4: "AUTH_KPDK_MD5",
+    5: "AUTH_AES_XCBC_96",
+    6: "AUTH_HMAC_MD5_128",
+    7: "AUTH_HMAC_SHA1_160",
+    8: "AUTH_AES_CMAC_96",
+    9: "AUTH_AES_128_GMAC",
+    10: "AUTH_AES_192_GMAC",
+    11: "AUTH_AES_256_GMAC",
+    12: "AUTH_HMAC_SHA2_256_128",
+    13: "AUTH_HMAC_SHA2_384_192",
+    14: "AUTH_HMAC_SHA2_512_256",
+}
+
+# "Transform Type 4 - Diffie-Hellman Group Transform IDs" (this registry's
+# entries are descriptive names, not ALL_CAPS constants like the three
+# above — reusing the exact wording already used in WEAK_DH_GROUPS/
+# STRONG_DH_GROUPS' own comments so the two never silently disagree).
+IKE_DH_GROUP_NAMES: dict[int, str] = {
+    1: "768-bit MODP",
+    2: "1024-bit MODP",
+    5: "1536-bit MODP",
+    14: "2048-bit MODP",
+    15: "3072-bit MODP",
+    16: "4096-bit MODP",
+    17: "6144-bit MODP",
+    18: "8192-bit MODP",
+    19: "256-bit random ECP",
+    20: "384-bit random ECP",
+    21: "521-bit random ECP",
+    22: "1024-bit MODP w/ 160-bit prime order subgroup",
+    23: "2048-bit MODP w/ 224-bit prime order subgroup",
+    24: "2048-bit MODP w/ 256-bit prime order subgroup",
+    31: "Curve25519",
+    32: "Curve448",
+}
