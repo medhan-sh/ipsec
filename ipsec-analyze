@@ -16,9 +16,9 @@ set -e
 IMAGE="ipsec-analyzer:dev"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# 0. Check for Docker. If docker is not available on the host system,
+# 0. Check for Docker. If docker is not available or daemon is inaccessible,
 # seamlessly fallback to the local Python CLI if available.
-if ! command -v docker >/dev/null 2>&1; then
+if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
     if [ -f "$SCRIPT_DIR/.venv/bin/python" ]; then
         PYTHON="$SCRIPT_DIR/.venv/bin/python"
     elif command -v python3 >/dev/null 2>&1; then

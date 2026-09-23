@@ -16,7 +16,7 @@ elif command -v python3 >/dev/null 2>&1 && python3 -c "import textual, scapy, ya
     PYTHON="python3"
     export PYTHONPATH="$SCRIPT_DIR/src:${PYTHONPATH}"
     exec "$PYTHON" -m ipsec_analyzer.tui.app "$@"
-elif command -v docker >/dev/null 2>&1; then
+elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     # 2. Fall back to Docker interactive container
     if ! docker image inspect "$IMAGE" >/dev/null 2>&1 || ! docker run --rm "$IMAGE" python3 -c "import ipsec_analyzer.tui" >/dev/null 2>&1; then
         echo "ipsec-tui: building/updating Docker image '$IMAGE'..." >&2
