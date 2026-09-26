@@ -189,6 +189,23 @@ Sample packet captures from Wireshark's test suite and real firewall traces are 
 
 To download the test vectors into `captures/`:
 
+### Dropping the `./`
+
+`./ipsec-analyze` works from a clone with no setup. To run it as
+`ipsec-analyze` from anywhere, symlink it onto your PATH:
+
+```bash
+mkdir -p ~/.local/bin
+ln -s "$PWD/ipsec-analyze" ~/.local/bin/ipsec-analyze
+```
+
+(any directory on your `PATH` works; `~/.local/bin` just avoids needing
+`sudo`). The wrapper resolves symlinks before locating its own Dockerfile,
+so the first-run auto-build still works when invoked through one. It
+always mounts the *current* directory, so the capture still has to live
+somewhere under wherever you run it from.
+
+To run the test suite instead:
 ```bash
 # Wireshark IKEv2 decrypt test suite
 curl -sL -o captures/ikev2-decrypt-aes128ccm12.pcap "https://gitlab.com/wireshark/wireshark/-/raw/master/test/captures/ikev2-decrypt-aes128ccm12.pcap"

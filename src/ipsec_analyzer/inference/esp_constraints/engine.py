@@ -219,7 +219,8 @@ def _granularity_channel(wire_lengths: Sequence[int], evidence: tuple[int, ...])
                 method="esp_constraints.gcd_estimator",
                 evidence=evidence,
                 caveats=(
-                    f"only {estimate.distinct_count} distinct ESP payload lengths observed; "
+                    f"only {estimate.distinct_count} distinct ESP payload "
+                    f"length{'' if estimate.distinct_count == 1 else 's'} observed; "
                     f"at least {MIN_DISTINCT_VALUES} are needed for a GCD estimate",
                 ),
             ),

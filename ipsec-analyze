@@ -14,7 +14,26 @@
 set -e
 
 IMAGE="ipsec-analyzer:dev"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Resolve through symlinks before taking dirname. The usual reason this
+# script is not invoked as ./ipsec-analyze is that someone symlinked it
+# onto their PATH (~/.local/bin/ipsec-analyze), and BASH_SOURCE[0] is then
+# the symlink's own path — so a bare dirname would point the docker build
+# at ~/.local/bin, which has no Dockerfile. Only bites on a machine with
+# no image yet, i.e. a fresh clone or right after `docker rmi`, which is
+# exactly when the auto-build is the thing you are relying on.
+# Hand-rolled rather than `readlink -f`: that is a GNU extension BSD/macOS
+# did not carry for most of this script's supported life.
+_source="${BASH_SOURCE[0]}"
+while [ -L "$_source" ]; do
+    _dir="$(cd -P "$(dirname "$_source")" && pwd)"
+    _source="$(readlink "$_source")"
+    case "$_source" in
+        /*) ;;
+        *) _source="$_dir/$_source" ;;
+    esac
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_source")" && pwd)"
 
 # 0. Check for Docker. If docker is not available or daemon is inaccessible,
 # seamlessly fallback to the local Python CLI if available.
