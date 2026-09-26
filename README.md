@@ -1,39 +1,193 @@
 # IPsec Analyzer
 
-A passive, non-decrypting security assessment tool for IPsec (IKEv2/ESP)
-packet captures. It reads a pcap/pcapng file, dissects the IKE handshake
-via `tshark` and infers what it can about the ESP data-plane cipher from
-packet sizes and timing alone, then checks the result against a fixed set
-of policy rules and writes a self-contained HTML report plus a
-`findings.json` document. Every fact it reports carries a provenance tier
-saying how it was obtained, so a reader can tell an observed protocol
-field apart from an inference and can't mistake either for a guess.
+A passive, non-decrypting security assessment platform for IPsec (IKEv2/ESP) network packet captures.
 
-## Running it
+It inspects `.pcap` and `.pcapng` traces, dissects the IKE handshake via `tshark`, infers ESP data-plane cipher properties from packet framing and sizing arithmetic, evaluates the posture against formal policy rules, and generates both an interactive standalone HTML report and a machine-readable `findings.json` document. Every finding and observation carries an explicit **provenance tier** distinguishing verified wire data from mathematical side-channel inferences.
 
-Docker is the canonical environment (see `CLAUDE.md`/`MVP_BUILD_PROMPT.md`
-for why: this project depends on a specific pinned `tshark` version, and
-the host's own Python/tshark toolchain is not assumed to work) — but it's
-an implementation detail, not something you need to think about. From a
-fresh clone, with nothing built yet:
+The platform provides two presentation interfaces:
+1. **Interactive Terminal Console (TUI)**: A rich, keyboard-driven Textual console featuring 5 specialized security screens and real-time search.
+2. **Command-Line Interface (CLI)**: A headless analyzer suited for scripts, CI/CD pipelines, and automated reporting.
 
-```bash
-./ipsec-analyze captures/weberblog_ikev2.pcap
+---
+
+## Quick Start (Two Ways to Run)
+
+The analyzer is designed to run seamlessly on any device (**Linux**, **macOS**, or **Windows**). You can run it either via **Docker** (no local dependencies needed) or **natively** (if you have Python and `tshark` installed).
+
+```
+                      ┌─────────────────────────────────────────┐
+                      │             Choose Method               │
+                      └────────────────────┬────────────────────┘
+                                           │
+                    ┌──────────────────────┴──────────────────────┐
+                    ▼                                             ▼
+          Method 1: With Docker                         Method 2: Native Local
+    (Portable across all OS & devices)              (Fastest if Python+TShark exist)
+                    │                                             │
+      ./ipsec-analyze <capture.pcap>                 pip install -e .
+      ./ipsec-tui                                    ./ipsec-tui
 ```
 
-This builds the image the first time it's needed (every run after that
-just uses it), analyses the capture, and writes both output files beside
-it: `captures/weberblog_ikev2.report.html` (open it directly in a
-browser — it needs no network access and no server) and
-`captures/weberblog_ikev2.findings.json` (the same result as plain
-data), printing both paths on success. `captures/your-capture.pcap` is
-any pcap/pcapng file, anywhere under the current directory — see
-`captures/FETCH.md` for how this project's own test captures were
-obtained. `./ipsec-analyze --help` shows every flag, including `-o`/
-`--json` to write the outputs somewhere else instead of the defaults.
+---
 
-On Linux, output files are written as your own user, not root — no
-`sudo` needed to delete a report you just generated.
+### Method 1: Running with Docker (Recommended for Portability)
+
+Docker packages Python, all library dependencies, and a pinned `tshark` binary into a reproducible container. **No host dependencies other than Docker are required.**
+
+From a clean clone:
+
+#### 1. Run the Headless Analyzer
+```bash
+# Automatically builds the container on first run and analyzes the capture
+./ipsec-analyze captures/ikev2-decrypt-aes128ccm12.pcap
+```
+* Generates `captures/ikev2-decrypt-aes128ccm12.report.html` (open directly in your browser).
+* Generates `captures/ikev2-decrypt-aes128ccm12.findings.json` (raw findings document).
+
+#### 2. Launch the Interactive Terminal UI (TUI)
+```bash
+# Launches the interactive security console in your terminal
+./ipsec-tui
+```
+
+#### 3. Run with Docker Compose
+If you prefer Docker Compose:
+```bash
+# Run analysis on a capture file
+docker compose run --rm analyzer captures/ikev2-decrypt-aes128ccm12.pcap
+
+# Launch the interactive TUI
+docker compose run --rm tui
+
+# Run the automated test suite
+docker compose run --rm test
+```
+
+#### 4. Run directly via Docker CLI
+```bash
+# Build the image
+docker build -t ipsec-analyzer:dev .
+
+# Analyze a capture
+docker run --rm -v "$PWD":/work ipsec-analyzer:dev captures/ikev2-decrypt-aes128ccm12.pcap
+
+# Launch the TUI (requires -it for interactive terminal)
+docker run -it --rm -v "$PWD":/work ipsec-analyzer:dev ipsec-tui
+```
+
+---
+
+### Method 2: Running Natively (Without Docker)
+
+If your machine already has Python 3.10+ and `tshark` (Wireshark CLI) installed (e.g. NixOS, Arch, Ubuntu, Debian, macOS via Homebrew):
+
+```bash
+# 1. Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 2. Install dependencies and the analyzer in editable mode
+pip install -e .
+
+# 3. Run the interactive TUI
+./ipsec-tui
+
+# 4. Or run the headless CLI analyzer
+./ipsec-analyze captures/ikev2-decrypt-aes128ccm12.pcap
+# (or: python -m ipsec_analyzer.cli captures/ikev2-decrypt-aes128ccm12.pcap)
+
+# 5. Run the test suite
+pytest
+```
+
+---
+
+## Interactive Security Console (TUI)
+
+The Textual-based TUI (`./ipsec-tui`) provides an interactive interface to inspect, filter, and audit IPsec traffic:
+
+```
+┌───────────────────────────────────┬────────────────────────────────────────────────────────┐
+│ CAPTURE EXPLORER                  │ [1] Overview  [2] Findings  [3] Tunnels  [4] Claims... │
+├───────────────────────────────────┼────────────────────────────────────────────────────────┤
+│ ▼ captures                        │ STATUS: ✔ Complete (0.7s) | Findings: Yes              │
+│   ├── ikev2-aes128ccm12.pcap      │                                                        │
+│   ├── ikev2-3des-sha1.pcap        │ FINDINGS TABLE [/ to filter]                           │
+│   └── weberblog_ikev2.pcap        │ ┌──────────┬─────────────────────────────────────────┐ │
+│                                   │ │ HIGH     │ Weak IKE SA cipher (DES / 3DES)         │ │
+│ [ Preview Card ]                  │ │ MEDIUM   │ Weak IKE SA integrity (MD5 / SHA-1)     │ │
+│ Size: 1.9 KB                      │ └──────────┴─────────────────────────────────────────┘ │
+│ Modified: 2026-09-22              │                                                        │
+│ Findings: Yes | Report: Yes       │ RECOMMENDATION & RFC CITATIONS                         │
+│                                   │ Upgrade proposal to AES-GCM (RFC 5282) or AES-CBC...   │
+│ [ Analyze (a) ] [ Refresh (r) ]   │                                                        │
+└───────────────────────────────────┴────────────────────────────────────────────────────────┘
+```
+
+### Keyboard Navigation & Shortcuts
+
+| Shortcut | Action | Description |
+|---|---|---|
+| <kbd>1</kbd> or <kbd>o</kbd> / <kbd>F1</kbd> | **Overview Screen** | Capture metadata, truncation banner, rule summary, IKE SA params, risk verdicts |
+| <kbd>2</kbd> or <kbd>f</kbd> / <kbd>F2</kbd> | **Findings Screen** | Security issues table, severity badges, frame scope, RFC recommendations |
+| <kbd>3</kbd> or <kbd>t</kbd> / <kbd>F3</kbd> | **Tunnels Screen** | ESP candidate universe, visual ratio bar, surviving suites, elimination reasons |
+| <kbd>4</kbd> or <kbd>c</kbd> / <kbd>F4</kbd> | **Claims Screen** | Wire observations, provenance tiers, confidence scores, framing caveats |
+| <kbd>5</kbd> or <kbd>v</kbd> / <kbd>F5</kbd> | **Coverage Screen** | Policy rules breakdown: found issues, clean passes, and coverage gaps |
+| <kbd>/</kbd> | **Filter / Search** | Focus real-time search input on Findings, Claims, or Coverage screens |
+| <kbd>Esc</kbd> | **Clear / Dismiss** | Clear current filter search query or dismiss open modal dialog |
+| <kbd>a</kbd> | **Analyze** | Execute analyzer subprocess against currently selected capture |
+| <kbd>r</kbd> | **Refresh** | Re-scan the filesystem directory tree in sidebar |
+| <kbd>b</kbd> | **Browser Report** | Open generated `<capture>.report.html` in your default browser |
+| <kbd>j</kbd> | **View JSON** | Open formatted `<capture>.findings.json` in modal code viewer |
+| <kbd>[</kbd> / <kbd>]</kbd> | **Cycle Tunnels** | Navigate between multiple ESP Child SAs / SPIs |
+| <kbd>?</kbd> or <kbd>h</kbd> | **Help** | Display keyboard shortcuts reference modal |
+| <kbd>q</kbd> or <kbd>Ctrl+C</kbd> | **Quit** | Exit the application |
+
+---
+
+## Deploying on Other Devices & Platforms
+
+### Linux (Ubuntu, Debian, Fedora, RHEL, NixOS, Arch)
+- **Permissions**: Output files are automatically mapped to your calling host user UID/GID (`--user $(id -u):$(id -g)`), ensuring generated `.html` and `.json` files can be edited or deleted without `sudo`.
+- **Headless execution**: Run `./ipsec-analyze capture.pcap` directly in server environments.
+
+### macOS (Apple Silicon M1/M2/M3/M4 & Intel)
+- Docker Desktop automatically reconciles file ownership across the macOS hypervisor boundary.
+- Both native ARM64 (`linux/arm64`) and x86_64 (`linux/amd64`) container builds are supported.
+
+### Windows (PowerShell & WSL2)
+- **Under WSL2** (Recommended): Works exactly like native Linux:
+  ```bash
+  ./ipsec-analyze captures/test.pcap
+  ./ipsec-tui
+  ```
+- **Under PowerShell with Docker Desktop**:
+  ```powershell
+  # Build
+  docker build -t ipsec-analyzer:dev .
+
+  # Run analysis
+  docker run --rm -v "${PWD}:/work" ipsec-analyzer:dev captures/test.pcap
+
+  # Run TUI
+  docker run -it --rm -v "${PWD}:/work" ipsec-analyzer:dev ipsec-tui
+  ```
+
+### Multi-Architecture Image Distribution
+To build and publish a multi-architecture image (`amd64` and `arm64`):
+
+```bash
+docker buildx create --use
+docker buildx build --platform linux/amd64,linux/arm64 -t your-registry/ipsec-analyzer:latest . --push
+```
+
+---
+
+## Test Captures
+
+Sample packet captures from Wireshark's test suite and real firewall traces are cataloged in [`captures/FETCH.md`](file:///home/sybqu/Desktop/sih/ipsec/captures/FETCH.md).
+
+To download the test vectors into `captures/`:
 
 ### Dropping the `./`
 
@@ -52,40 +206,42 @@ always mounts the *current* directory, so the capture still has to live
 somewhere under wherever you run it from.
 
 To run the test suite instead:
-
 ```bash
-make test
+# Wireshark IKEv2 decrypt test suite
+curl -sL -o captures/ikev2-decrypt-aes128ccm12.pcap "https://gitlab.com/wireshark/wireshark/-/raw/master/test/captures/ikev2-decrypt-aes128ccm12.pcap"
+curl -sL -o captures/ikev2-decrypt-3des-sha1_160.pcap "https://gitlab.com/wireshark/wireshark/-/raw/master/test/captures/ikev2-decrypt-3des-sha1_160.pcap"
+curl -sL -o captures/ikev2-decrypt-aes192ctr.pcap "https://gitlab.com/wireshark/wireshark/-/raw/master/test/captures/ikev2-decrypt-aes192ctr.pcap"
+curl -sL -o captures/ikev2-decrypt-aes256cbc.pcapng "https://gitlab.com/wireshark/wireshark/-/raw/master/test/captures/ikev2-decrypt-aes256cbc.pcapng"
+curl -sL -o captures/ikev2-decrypt-aes256gcm16.pcap "https://gitlab.com/wireshark/wireshark/-/raw/master/test/captures/ikev2-decrypt-aes256gcm16.pcap"
+curl -sL -o captures/ikev2-decrypt-aes256gcm8.pcap "https://gitlab.com/wireshark/wireshark/-/raw/master/test/captures/ikev2-decrypt-aes256gcm8.pcap"
 ```
 
-## Provenance tiers
+To run the automated test suite:
+```bash
+make test
+# or with pytest locally:
+pytest -v
+```
 
-Every fact the tool reports is a `Claim` carrying one of five tiers,
-ordered weakest to strongest. A rule engine result is only as trustworthy
-as the weakest tier behind it, and the report always shows which tier
-backs which value — nothing is presented as more certain than how it was
-actually obtained.
+---
 
-| Tier | Meaning |
-|---|---|
-| `NOT_OBSERVABLE` | Not a weak claim — the absence of one. Either nothing on the wire could ever answer this question (e.g. whether the receiver enforces its anti-replay window), or this specific capture didn't contain enough to answer it (e.g. a truncated handshake, or too few ESP packets for a size-based estimator to reach a conclusion). Carries no value. |
-| `ML_PREDICTION` | A statistical classifier's output. Defined in the tier lattice for a future phase; this MVP does not include a classifier and never produces a claim at this tier today. |
-| `INFERRED_IMPLEMENTATION_DEFAULT` | Assumed from a common implementation default rather than derived from this capture's own traffic. Also defined in the lattice but not produced by any code path in this MVP today — reserved, not currently used. |
-| `INFERRED_SIDE_CHANNEL` | Derived deterministically from packet sizes or timing — e.g. the ESP padding granularity recovered from the GCD of packet-length differences, or an integrity-check-value length recovered from a TCP ACK anchor. Exact given the observed data, but the underlying identification method (which packet is an ACK, which suites share a framing) is a heuristic, not a protocol guarantee, and any such caveat is attached to the claim itself. |
-| `OBSERVED` | Read directly off the wire by `tshark`'s own dissector — an IKE transform ID, a notify payload's presence, an IP protocol number. Confidence is always exactly 1.0 at this tier; if it isn't certain, it isn't `OBSERVED`. |
+## Provenance Tiers
 
-## What this does not do
+Every fact the tool reports is an atomic `Claim` carrying one of five provenance tiers, ordered weakest to strongest. An assessment result is only as certain as the weakest tier supporting it:
 
-This tool never decrypts anything — ESP payloads are opaque ciphertext to
-it throughout, and every ESP-side conclusion comes from packet sizes,
-timing, and the small number of framing bytes (explicit IV, ICV) that
-size arithmetic alone can expose, never from key material. It never
-sends a packet, probes a live endpoint, or otherwise touches the network
-it's analysing — it only reads a capture file someone already took. It
-has no classifier, no fingerprint database, and no scoring model in this
-MVP: findings come from a fixed, human-authored set of policy rules
-checked against what was actually observed or inferred, not from a
-trained model or a weighted risk score. It does not attempt IKEv1
-Aggressive/Main Mode SA-parameter extraction, RFC 7383 message
-reassembly, deep AH analysis, or live/replay capture — a truncated,
-fragmented, or otherwise incomplete capture produces an explicit coverage
-gap for whatever it couldn't determine, never a fabricated answer.
+| Tier | Meaning | Confidence |
+|---|---|---|
+| `OBSERVED` | Read directly off the wire by `tshark`'s protocol dissector (e.g. IKE transform ID, notify payload presence, IP protocol number). | 1.0 (Exact) |
+| `INFERRED_SIDE_CHANNEL` | Derived deterministically from packet framing, padding arithmetic, or TCP ACK anchors (e.g. ESP padding granularity from GCD of packet size deltas). | Heuristic |
+| `INFERRED_IMPLEMENTATION_DEFAULT` | Assumed from known implementation defaults (reserved for future extensions; never fabricated in current MVP). | Reserved |
+| `ML_PREDICTION` | Statistical classifier output (reserved for future phases; never fabricated in current MVP). | Reserved |
+| `NOT_OBSERVABLE` | The question cannot be answered from the capture (e.g. receiver anti-replay policy, or insufficient packets for size-based elimination). | None (Gap) |
+
+---
+
+## Security Guarantees & Constraints
+
+1. **Zero Decryption**: ESP payloads remain completely opaque. The platform does not extract or require cryptographic keys.
+2. **Strictly Passive**: No packets are transmitted; no endpoints are probed or modified.
+3. **No Fabricated Data**: If a capture is truncated, incomplete, or uniform in packet size, an explicit **coverage gap** is reported rather than a fabricated guess.
+4. **Frozen Schema**: `findings.json` strictly adheres to the frozen `1.0` contract for external consumption.

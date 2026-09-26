@@ -35,6 +35,21 @@ while [ -L "$_source" ]; do
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$_source")" && pwd)"
 
+# 0. Check for Docker. If docker is not available or daemon is inaccessible,
+# seamlessly fallback to the local Python CLI if available.
+if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+    if [ -f "$SCRIPT_DIR/.venv/bin/python" ]; then
+        PYTHON="$SCRIPT_DIR/.venv/bin/python"
+    elif command -v python3 >/dev/null 2>&1; then
+        PYTHON="python3"
+    else
+        echo "ipsec-analyze: neither docker nor python3 was found." >&2
+        exit 1
+    fi
+    export PYTHONPATH="$SCRIPT_DIR/src:${PYTHONPATH}"
+    exec "$PYTHON" -m ipsec_analyzer.cli "$@"
+fi
+
 # 1. Auto-build. A fresh clone has no image yet; build it once, here,
 # rather than making that a separate step the user has to know to run
 # first. `docker image inspect` is silent and cheap when the image
@@ -43,6 +58,7 @@ if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
     echo "ipsec-analyze: building image (first run only)..." >&2
     docker build -t "$IMAGE" "$SCRIPT_DIR"
 fi
+
 
 # 2. Find the capture argument and any -o/--output/--json values among
 # "$@", the same way the CLI's own argparse would. Only used for the
@@ -140,4 +156,4 @@ if [ -t 1 ]; then
     tty_args=(-t)
 fi
 
-exec docker run --rm "${tty_args[@]}" "${docker_user_args[@]}" -v "$PWD":/work -w /work "$IMAGE" "$@"
+exec docker run --rm "${tty_args[@]}" "${docker_user_args[@]}" -v "$PWD":/work -w /work -e PYTHONPATH=/work/src "$IMAGE" "$@"
