@@ -1,12 +1,12 @@
-# IPsec Analyzer
+# Umbra
 
 A passive, non-decrypting security assessment platform for IPsec (IKEv2/ESP) network packet captures.
 
-It inspects `.pcap` and `.pcapng` traces, dissects the IKE handshake via `tshark`, infers ESP data-plane cipher properties from packet framing and sizing arithmetic, evaluates the posture against formal policy rules, and generates both an interactive standalone HTML report and a machine-readable `findings.json` document. Every finding and observation carries an explicit **provenance tier** distinguishing verified wire data from mathematical side-channel inferences.
+**Umbra** inspects `.pcap` and `.pcapng` traces, dissects the IKE handshake via `tshark`, infers ESP data-plane cipher properties from packet framing and sizing arithmetic, evaluates the posture against formal policy rules, and generates both an interactive standalone HTML report and a machine-readable `findings.json` document. Every finding and observation carries an explicit **provenance tier** distinguishing verified wire data from mathematical side-channel inferences.
 
 The platform provides two presentation interfaces:
-1. **Interactive Terminal Console (TUI)**: A rich, keyboard-driven Textual console featuring 5 specialized security screens and real-time search.
-2. **Command-Line Interface (CLI)**: A headless analyzer suited for scripts, CI/CD pipelines, and automated reporting.
+1. **Interactive Terminal Console (TUI)**: A rich, keyboard-driven Textual console featuring 5 specialized security screens and real-time search (`./umbra-tui` or `./umbra tui`).
+2. **Command-Line Interface (CLI)**: A headless analyzer suited for scripts, CI/CD pipelines, and automated reporting (`./umbra`).
 
 ---
 
@@ -24,8 +24,8 @@ The analyzer is designed to run seamlessly on any device (**Linux**, **macOS**, 
           Method 1: With Docker                         Method 2: Native Local
     (Portable across all OS & devices)              (Fastest if Python+TShark exist)
                     │                                             │
-      ./ipsec-analyze <capture.pcap>                 pip install -e .
-      ./ipsec-tui                                    ./ipsec-tui
+      ./umbra <capture.pcap>                        pip install -e .
+      ./umbra-tui                                   ./umbra-tui
 ```
 
 ---
@@ -39,7 +39,7 @@ From a clean clone:
 #### 1. Run the Headless Analyzer
 ```bash
 # Automatically builds the container on first run and analyzes the capture
-./ipsec-analyze captures/ikev2-decrypt-aes128ccm12.pcap
+./umbra captures/ikev2-decrypt-aes128ccm12.pcap
 ```
 * Generates `captures/ikev2-decrypt-aes128ccm12.report.html` (open directly in your browser).
 * Generates `captures/ikev2-decrypt-aes128ccm12.findings.json` (raw findings document).
@@ -47,17 +47,18 @@ From a clean clone:
 #### 2. Launch the Interactive Terminal UI (TUI)
 ```bash
 # Launches the interactive security console in your terminal
-./ipsec-tui
+./umbra-tui
+# (or: ./umbra tui)
 ```
 
 #### 3. Run with Docker Compose
 If you prefer Docker Compose:
 ```bash
 # Run analysis on a capture file
-docker compose run --rm analyzer captures/ikev2-decrypt-aes128ccm12.pcap
+docker compose run --rm umbra captures/ikev2-decrypt-aes128ccm12.pcap
 
 # Launch the interactive TUI
-docker compose run --rm tui
+docker compose run --rm umbra-tui
 
 # Run the automated test suite
 docker compose run --rm test
@@ -69,10 +70,10 @@ docker compose run --rm test
 docker build -t ipsec-analyzer:dev .
 
 # Analyze a capture
-docker run --rm -v "$PWD":/work ipsec-analyzer:dev captures/ikev2-decrypt-aes128ccm12.pcap
+docker run --rm -v "$PWD":/work ipsec-analyzer:dev umbra captures/ikev2-decrypt-aes128ccm12.pcap
 
 # Launch the TUI (requires -it for interactive terminal)
-docker run -it --rm -v "$PWD":/work ipsec-analyzer:dev ipsec-tui
+docker run -it --rm -v "$PWD":/work ipsec-analyzer:dev umbra-tui
 ```
 
 ---
@@ -90,10 +91,11 @@ source .venv/bin/activate
 pip install -e .
 
 # 3. Run the interactive TUI
-./ipsec-tui
+./umbra-tui
+# (or: ./umbra tui)
 
 # 4. Or run the headless CLI analyzer
-./ipsec-analyze captures/ikev2-decrypt-aes128ccm12.pcap
+./umbra captures/ikev2-decrypt-aes128ccm12.pcap
 # (or: python -m ipsec_analyzer.cli captures/ikev2-decrypt-aes128ccm12.pcap)
 
 # 5. Run the test suite
@@ -104,7 +106,7 @@ pytest
 
 ## Interactive Security Console (TUI)
 
-The Textual-based TUI (`./ipsec-tui`) provides an interactive interface to inspect, filter, and audit IPsec traffic:
+The Textual-based TUI (`./umbra-tui` or `./umbra tui`) provides an interactive interface to inspect, filter, and audit IPsec traffic:
 
 ```
 ┌───────────────────────────────────┬────────────────────────────────────────────────────────┐
@@ -149,7 +151,7 @@ The Textual-based TUI (`./ipsec-tui`) provides an interactive interface to inspe
 
 ### Linux (Ubuntu, Debian, Fedora, RHEL, NixOS, Arch)
 - **Permissions**: Output files are automatically mapped to your calling host user UID/GID (`--user $(id -u):$(id -g)`), ensuring generated `.html` and `.json` files can be edited or deleted without `sudo`.
-- **Headless execution**: Run `./ipsec-analyze capture.pcap` directly in server environments.
+- **Headless execution**: Run `./umbra capture.pcap` directly in server environments.
 
 ### macOS (Apple Silicon M1/M2/M3/M4 & Intel)
 - Docker Desktop automatically reconciles file ownership across the macOS hypervisor boundary.
@@ -158,8 +160,8 @@ The Textual-based TUI (`./ipsec-tui`) provides an interactive interface to inspe
 ### Windows (PowerShell & WSL2)
 - **Under WSL2** (Recommended): Works exactly like native Linux:
   ```bash
-  ./ipsec-analyze captures/test.pcap
-  ./ipsec-tui
+  ./umbra captures/test.pcap
+  ./umbra-tui
   ```
 - **Under PowerShell with Docker Desktop**:
   ```powershell
@@ -167,10 +169,10 @@ The Textual-based TUI (`./ipsec-tui`) provides an interactive interface to inspe
   docker build -t ipsec-analyzer:dev .
 
   # Run analysis
-  docker run --rm -v "${PWD}:/work" ipsec-analyzer:dev captures/test.pcap
+  docker run --rm -v "${PWD}:/work" ipsec-analyzer:dev umbra captures/test.pcap
 
   # Run TUI
-  docker run -it --rm -v "${PWD}:/work" ipsec-analyzer:dev ipsec-tui
+  docker run -it --rm -v "${PWD}:/work" ipsec-analyzer:dev umbra-tui
   ```
 
 ### Multi-Architecture Image Distribution

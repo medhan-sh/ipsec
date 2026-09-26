@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# umbra — Unified launcher for the Umbra IPsec Security Platform (CLI & TUI).
+#
+# Usage:
+#   ./umbra <capture.pcap> [-o report.html] [--json findings.json]   (Headless CLI)
+#   ./umbra tui [capture.pcap]                                       (Interactive TUI)
+#   ./umbra --tui [capture.pcap]                                     (Interactive TUI)
+set -e
+
+IMAGE="ipsec-analyzer:dev"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Route to TUI mode if explicitly requested or if no arguments passed and terminal is interactive
+if [ "$1" = "tui" ] || [ "$1" = "--tui" ]; then
+    shift
+    exec "$SCRIPT_DIR/umbra-tui" "$@"
+fi
+
+# 0. Check for Docker. If docker is not available or daemon is inaccessible,
+# seamlessly fallback to the local Python CLI if available.
+if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+    if [ -f "$SCRIPT_DIR/.venv/bin/python" ]; then
+        PYTHON="$SCRIPT_DIR/.venv/bin/python"
+    elif command -v python3 >/dev/null 2>&1; then
+        PYTHON="python3"
+    else
+        echo "umbra: neither docker nor python3 was found." >&2
+        exit 1
+    fi
+    export PYTHONPATH="$SCRIPT_DIR/src:${PYTHONPATH}"
+    exec "$PYTHON" -m ipsec_analyzer.cli "$@"
+fi
+
+# 1. Auto-build. A fresh clone has no image yet; build it once, here.
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    echo "umbra: building image (first run only)..." >&2
+    docker build -t "$IMAGE" "$SCRIPT_DIR"
+fi
+
+# 2. Find the capture argument and any -o/--output/--json values among "$@"
+capture=""
+output_path=""
+json_path=""
+next_slot=""
+for arg in "$@"; do
+    if [ -n "$next_slot" ]; then
+        case "$next_slot" in
+            output) output_path="$arg" ;;
+            json) json_path="$arg" ;;
+        esac
+        next_slot=""
+        continue
+    fi
+    case "$arg" in
+        -o|--output) next_slot="output" ;;
+        --json) next_slot="json" ;;
+        -*) ;;
+        *) capture="$arg" ;;
+    esac
+done
+
+# 3. Paths outside the working directory. -v "$PWD":/work means container can only see $PWD
+if [ -n "$capture" ] && [ -e "$capture" ]; then
+    capture_dir="$(cd "$(dirname "$capture")" && pwd)"
+    abs_capture="$capture_dir/$(basename "$capture")"
+    abs_pwd="$(pwd)"
+    case "$abs_capture" in
+        "$abs_pwd"/*|"$abs_pwd") ;;
+        *)
+            echo "umbra: '$capture' is outside the current directory ($abs_pwd)." >&2
+            echo "umbra: only \$PWD is visible inside the container — cd to a directory that contains it and try again." >&2
+            exit 1
+            ;;
+    esac
+fi
+
+_check_output_dir_under_pwd() {
+    out_path="$1"
+    out_label="$2"
+    [ -n "$out_path" ] || return 0
+    out_dir="$(dirname "$out_path")"
+    [ -d "$out_dir" ] || return 0
+    abs_out_dir="$(cd "$out_dir" && pwd)"
+    abs_pwd="$(pwd)"
+    case "$abs_out_dir" in
+        "$abs_pwd"/*|"$abs_pwd") return 0 ;;
+        *)
+            echo "umbra: $out_label path '$out_path' is outside the current directory ($abs_pwd)." >&2
+            echo "umbra: the container would write it there silently and --rm would discard it — only \$PWD is shared with the host." >&2
+            return 1
+            ;;
+    esac
+}
+_check_output_dir_under_pwd "$output_path" "--output"
+_check_output_dir_under_pwd "$json_path" "--json"
+
+# 4. File ownership
+docker_user_args=()
+if [ "$(uname -s)" = "Linux" ]; then
+    docker_user_args=(--user "$(id -u):$(id -g)")
+fi
+
+# 5. TTY and exit codes
+tty_args=()
+if [ -t 1 ]; then
+    tty_args=(-t)
+fi
+
+exec docker run --rm "${tty_args[@]}" "${docker_user_args[@]}" -v "$PWD":/work -w /work -e PYTHONPATH=/work/src "$IMAGE" umbra "$@"
