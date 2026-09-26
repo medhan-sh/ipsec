@@ -1,4 +1,4 @@
-"""cli.py — ipsec-analyze: pcap -> report.html + findings.json
+"""cli.py — umbra: pcap -> report.html + findings.json
 (MVP_BUILD_PROMPT.md Phase 6; default output paths since Phase 6c).
 
 The composition root. This is the one file in this project allowed to
@@ -348,8 +348,8 @@ def _default_sibling_path(capture: str, suffix: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="ipsec-analyze",
-        description="Passive, non-decrypting security assessment of an IPsec (IKEv2/ESP) packet capture.",
+        prog="umbra",
+        description="Umbra: Passive, non-decrypting security assessment of an IPsec (IKEv2/ESP) packet capture.",
     )
     parser.add_argument("capture", help="Path to a pcap/pcapng file")
     parser.add_argument(

@@ -31,9 +31,9 @@ from ipsec_analyzer.tui.widgets.tunnels_screen import TunnelsScreen
 
 
 class IPsecAnalyzerApp(App[None]):
-    """Textual terminal user interface for the IPsec Analyzer."""
+    """Textual terminal user interface for the Umbra IPsec Security Platform."""
 
-    TITLE = "IPSEC ANALYZER // SECURITY CONSOLE"
+    TITLE = "UMBRA // SECURITY CONSOLE"
     SUB_TITLE = "Passive IPsec (IKEv2/ESP) Assessment Platform"
     CSS_PATH = "styles.tcss"
 
@@ -233,7 +233,7 @@ class IPsecAnalyzerApp(App[None]):
         status_label = self.query_one("#status-label", Label)
         indicator.display = True
         status_label.update(
-            f"[bold cyan]Analyzing {capture_path.name}[/] with ./ipsec-analyze (waiting for TShark and assessment engine)..."
+            f"[bold cyan]Analyzing {capture_path.name}[/] with ./umbra (waiting for TShark and assessment engine)..."
         )
         self.query_one(CaptureBrowserPanel).query_one("#btn-analyze").disabled = True
 
@@ -270,8 +270,8 @@ class IPsecAnalyzerApp(App[None]):
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="ipsec-tui",
-        description="Textual-based Security Console for IPsec Analyzer",
+        prog="umbra-tui",
+        description="Umbra: Textual Security Console for Passive IPsec Assessment",
     )
     parser.add_argument("capture", nargs="?", default=None, help="Optional path to a .pcap/.pcapng capture file")
     args = parser.parse_args(argv)

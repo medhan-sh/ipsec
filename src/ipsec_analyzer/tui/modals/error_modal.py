@@ -23,8 +23,8 @@ class ErrorModal(ModalScreen[None]):
         "Verify the Docker daemon is running (`systemctl status docker` or `docker info`).",
         "Verify read permissions on the capture file and write permissions in its directory.",
         "Ensure the file is a valid, uncorrupted PCAP/PCAPNG network trace.",
-        "To run directly without Docker, set IPSEC_ANALYZE_CMD=\"python -m ipsec_analyzer.cli\".",
-        "Test running the analyzer CLI directly: `./ipsec-analyze <capture>`.",
+        "To run directly without Docker, set IPSEC_ANALYZE_CMD=\"python -m ipsec_analyzer.cli\" (or UMBRA_CMD).",
+        "Test running the analyzer CLI directly: `./umbra <capture>`.",
     ]
 
     def __init__(

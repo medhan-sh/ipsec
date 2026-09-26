@@ -19,7 +19,7 @@ class HelpModal(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal-dialog"):
-            yield Label("IPSEC ANALYZER // KEYBOARD REFERENCE", classes="modal-title")
+            yield Label("UMBRA // KEYBOARD REFERENCE", classes="modal-title")
             table = DataTable(classes="modal-body")
             table.cursor_type = "row"
             yield table

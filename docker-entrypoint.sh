@@ -6,13 +6,13 @@ if [ -d "/work/src" ]; then
 fi
 
 case "$1" in
-    ipsec-tui)
+    umbra-tui|ipsec-tui)
         shift
-        exec ipsec-tui "$@"
+        exec umbra-tui "$@"
         ;;
-    ipsec-analyze)
+    umbra|ipsec-analyze)
         shift
-        exec ipsec-analyze "$@"
+        exec umbra "$@"
         ;;
     pytest)
         shift
@@ -22,6 +22,6 @@ case "$1" in
         exec "$@"
         ;;
     *)
-        exec ipsec-analyze "$@"
+        exec umbra "$@"
         ;;
 esac

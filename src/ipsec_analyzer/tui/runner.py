@@ -1,7 +1,7 @@
-"""runner.py — Subprocess execution wrapper for the IPsec analyzer.
+"""runner.py — Subprocess execution wrapper for the Umbra analyzer.
 
-Preserves canonical execution through ./ipsec-analyze (which wraps Docker/TShark)
-or allows custom execution via IPSEC_ANALYZE_CMD.
+Preserves canonical execution through ./umbra (which wraps Docker/TShark)
+or allows custom execution via UMBRA_CMD / IPSEC_ANALYZE_CMD.
 """
 
 from __future__ import annotations
@@ -47,23 +47,25 @@ def run_analysis(
 ) -> AnalysisRunResult:
     """Executes the analyzer against a capture file in a subprocess.
 
-    Defaults to `./ipsec-analyze <capture>`.
-    Can be overridden via custom_cmd argument or `IPSEC_ANALYZE_CMD` env var.
+    Defaults to `./umbra <capture>` (or `./ipsec-analyze <capture>`).
+    Can be overridden via custom_cmd argument or `UMBRA_CMD` / `IPSEC_ANALYZE_CMD` env var.
     """
     pcap_path = Path(capture_path).resolve()
     findings_path = get_default_sibling_path(pcap_path, ".findings.json")
     report_path = get_default_sibling_path(pcap_path, ".report.html")
 
-    cmd_override = custom_cmd or os.environ.get("IPSEC_ANALYZE_CMD")
+    cmd_override = custom_cmd or os.environ.get("UMBRA_CMD") or os.environ.get("IPSEC_ANALYZE_CMD")
     if cmd_override:
         parts = shlex.split(cmd_override) + [str(pcap_path)]
     else:
-        # Canonical entry point: use ./ipsec-analyze (Docker wrapper) if Docker is available
-        script_path = Path.cwd() / "ipsec-analyze"
+        # Canonical entry point: use ./umbra (or ./ipsec-analyze) if Docker is available
+        script_path = Path.cwd() / "umbra"
+        if not (script_path.is_file() and os.access(script_path, os.X_OK)):
+            script_path = Path.cwd() / "ipsec-analyze"
         if shutil.which("docker") and script_path.is_file() and os.access(script_path, os.X_OK):
             parts = [str(script_path), str(pcap_path)]
         else:
-            # Fallback to local python CLI when docker is not installed or ./ipsec-analyze is absent
+            # Fallback to local python CLI when docker is not installed or ./umbra is absent
             parts = [sys.executable, "-m", "ipsec_analyzer.cli", str(pcap_path)]
 
 
@@ -146,7 +148,7 @@ def run_analysis(
             capture_path=pcap_path,
             findings_path=findings_path,
             report_path=report_path,
-            error_message=f"Executable '{parts[0]}' not found. Ensure ./ipsec-analyze exists or set IPSEC_ANALYZE_CMD.",
+            error_message=f"Executable '{parts[0]}' not found. Ensure ./umbra exists or set UMBRA_CMD / IPSEC_ANALYZE_CMD.",
         )
     except Exception as exc:
         duration = round(time.perf_counter() - start_time, 2)
