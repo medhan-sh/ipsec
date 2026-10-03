@@ -529,7 +529,8 @@ class UmbraWebServer(ThreadingHTTPServer):
     ) -> None:
         super().__init__(server_address, RequestHandlerClass)
         self.captures_dir = captures_dir or (Path.cwd() / "captures")
-        self.static_dir = static_dir or (Path.cwd() / "web-ui" / "dist")
+        static_default = os.environ.get("UMBRA_STATIC_DIR")
+        self.static_dir = static_dir or (Path(static_default) if static_default else Path.cwd() / "web-ui" / "dist")
 
 
 def create_server(

@@ -21,7 +21,7 @@ else
 DOCKER_USER :=
 endif
 
-.PHONY: build test clean web-build web
+.PHONY: build test clean web-build web web-docker
 
 build:
 	docker build -t $(IMAGE) .
@@ -38,6 +38,10 @@ web-build:
 
 web:
 	python -m ipsec_analyzer.web
+
+# Self-contained web UI: builds frontend in Docker, no host Node needed.
+web-docker:
+	docker compose up --build web
 
 clean:
 	rm -f report.html findings.json

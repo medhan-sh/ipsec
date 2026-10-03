@@ -1,46 +1,34 @@
+# docker-compose.yml — Service definitions for the Umbra IPsec analyzer.
+#
+# Quick commands:
+#   docker compose up                # Start Web UI (http://127.0.0.1:8765)
+#   docker compose up -d             # Start Web UI in background
+#   docker compose run --rm tui      # Launch Interactive TUI Console
+#   docker compose run --rm umbra captures/example.pcap   # Headless CLI analysis
+#   docker compose run --rm test     # Run Pytest suite
+
 services:
-  umbra:
+  # ── Web UI (Default service) ────────────────────────────────────────
+  # Built with multi-stage Dockerfile.web (Node.js builds React SPA + Python backend).
+  web:
     build:
       context: .
-      dockerfile: Dockerfile
-    image: ipsec-analyzer:dev
+      dockerfile: Dockerfile.web
+    image: ipsec-analyzer-web:dev
+    container_name: umbra-web
     volumes:
-      - .:/work
+      - ./captures:/work/captures
+      - ./src:/work/src
     working_dir: /work
-    entrypoint: ["umbra"]
+    ports:
+      - "127.0.0.1:8765:8765"
     environment:
       - PYTHONPATH=/work/src
+      - UMBRA_WEB_HOST=0.0.0.0
 
-  umbra-tui:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: ipsec-analyzer:dev
-    volumes:
-      - .:/work
-    working_dir: /work
-    entrypoint: ["umbra-tui"]
-    stdin_open: true
-    tty: true
-    environment:
-      - PYTHONPATH=/work/src
-      - TERM=xterm-256color
-      - LANG=C.UTF-8
-      - LC_ALL=C.UTF-8
-
-  analyzer:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: ipsec-analyzer:dev
-    volumes:
-      - .:/work
-    working_dir: /work
-    entrypoint: ["umbra"]
-    environment:
-      - PYTHONPATH=/work/src
-
+  # ── Interactive TUI (Textual console) ───────────────────────────────
   tui:
+    profiles: ["tui", "cli"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -57,7 +45,23 @@ services:
       - LANG=C.UTF-8
       - LC_ALL=C.UTF-8
 
+  # ── CLI analyzer (Headless) ─────────────────────────────────────────
+  umbra:
+    profiles: ["cli"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ipsec-analyzer:dev
+    volumes:
+      - .:/work
+    working_dir: /work
+    entrypoint: ["umbra"]
+    environment:
+      - PYTHONPATH=/work/src
+
+  # ── Test suite ──────────────────────────────────────────────────────
   test:
+    profiles: ["test"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -70,7 +74,9 @@ services:
     environment:
       - PYTHONPATH=/work/src
 
-  web:
+  # ── Web UI Dev mode (Live mount of host web-ui/dist) ────────────────
+  web-dev:
+    profiles: ["dev"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -78,9 +84,10 @@ services:
     volumes:
       - .:/work
     working_dir: /work
-    entrypoint: ["python", "-m", "ipsec_analyzer.web", "--host", "0.0.0.0", "--port", "8765"]
+    entrypoint: ["docker-entrypoint.sh"]
+    command: ["umbra-web", "--host", "0.0.0.0", "--port", "8765"]
     ports:
-      - "127.0.0.1:8765:8765"
+      - "127.0.0.1:8766:8765"
     environment:
       - PYTHONPATH=/work/src
       - UMBRA_WEB_HOST=0.0.0.0

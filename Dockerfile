@@ -49,7 +49,8 @@ RUN pip install --no-cache-dir --no-deps .
 # Entrypoint script providing flexible dispatch between CLI analysis,
 # interactive TUI console, test suite, and custom shells.
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
+    && chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # /work is the runtime mount point and default working directory.
 # Relaxed permissions ensure arbitrary non-root host UIDs on Linux (--user)

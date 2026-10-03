@@ -19,6 +19,7 @@ fi
 # Route to Web mode if explicitly requested
 if [ "$1" = "web" ] || [ "$1" = "--web" ]; then
     shift
+    WEB_IMAGE="ipsec-analyzer-web:dev"
     if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
         if [ -f "$SCRIPT_DIR/.venv/bin/python" ]; then
             PYTHON="$SCRIPT_DIR/.venv/bin/python"
@@ -33,7 +34,11 @@ if [ "$1" = "web" ] || [ "$1" = "--web" ]; then
         export PYTHONPATH="$SCRIPT_DIR/src:${PYTHONPATH}"
         exec "$PYTHON" -m ipsec_analyzer.web "$@"
     fi
-    exec docker run --rm -p 127.0.0.1:8765:8765 -v "$PWD":/work -w /work -e PYTHONPATH=/work/src "$IMAGE" python -m ipsec_analyzer.web --host 0.0.0.0 "$@"
+    if ! docker image inspect "$WEB_IMAGE" >/dev/null 2>&1; then
+        echo "umbra: building web image '$WEB_IMAGE' (first run only)..." >&2
+        docker build -f "$SCRIPT_DIR/Dockerfile.web" -t "$WEB_IMAGE" "$SCRIPT_DIR"
+    fi
+    exec docker run --rm -p 127.0.0.1:8765:8765 -v "$PWD/captures":/work/captures -v "$PWD/src":/work/src -e PYTHONPATH=/work/src "$WEB_IMAGE" umbra-web --host 0.0.0.0 --port 8765 "$@"
 fi
 
 # 0. Check for Docker. If docker is not available or daemon is inaccessible,
