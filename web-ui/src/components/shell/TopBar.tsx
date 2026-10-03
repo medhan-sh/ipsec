@@ -34,6 +34,12 @@ export const TopBar: React.FC<TopBarProps> = ({ onOpenJson, className }) => {
         </span>
 
         {state.dataSource === "mock" && <SampleDataChip />}
+        {isAnalyzing && (
+          <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-data text-[10px] bg-signal-faint border border-signal text-signal animate-pulse">
+            <span className="w-1.5 h-1.5 rounded-full bg-signal shadow-glow" />
+            DISSECTING WIRE INVARIANTS
+          </span>
+        )}
       </div>
 
       <div className="flex items-center gap-2">

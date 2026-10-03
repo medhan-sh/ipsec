@@ -36,7 +36,7 @@ export const FindingsPage: React.FC = () => {
     const raw = searchParams.get("severity");
     return raw ? raw.split(",").filter(Boolean) : [];
   });
-  const deepSelectedRuleId = searchParams.get("selected");
+  const deepSelectedRuleId = searchParams.get("selected") || searchParams.get("rule");
 
   // Keep local state in sync if URL search params change externally
   useEffect(() => {

@@ -10,6 +10,7 @@ import { CoverageGlance } from "./components/CoverageGlance";
 import { PipelineHealth } from "./components/PipelineHealth";
 import { FindingsSummary } from "./components/FindingsSummary";
 import { ProvenanceDistribution } from "./components/ProvenanceDistribution";
+import { VerdictBanner } from "./components/VerdictBanner";
 
 export const OverviewPage: React.FC = () => {
   const { state, analyzeSelected, selectCapture } = useAppStore();
@@ -31,15 +32,17 @@ export const OverviewPage: React.FC = () => {
           description="Forensic posture, evidence provenance, and policy assessment summary."
         />
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="space-y-6">
-            <Skeleton className="h-44 w-full rounded-data" />
-            <Skeleton className="h-36 w-full rounded-data" />
-            <Skeleton className="h-36 w-full rounded-data" />
-          </div>
-          <div className="space-y-6">
-            <Skeleton className="h-64 w-full rounded-data" />
-            <Skeleton className="h-56 w-full rounded-data" />
+        <div className="space-y-6">
+          <Skeleton className="h-28 w-full rounded-data border border-border-hairline" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="space-y-6">
+              <Skeleton className="h-44 w-full rounded-data" />
+              <Skeleton className="h-36 w-full rounded-data" />
+            </div>
+            <div className="space-y-6">
+              <Skeleton className="h-64 w-full rounded-data" />
+              <Skeleton className="h-44 w-full rounded-data" />
+            </div>
           </div>
         </div>
       </div>
@@ -82,7 +85,8 @@ export const OverviewPage: React.FC = () => {
   }
 
   // State 4: Populated (Forensic Instrument)
-  const { capture, coverage, findings, claims, rules } = state.loadedDocument;
+  const { capture, coverage, findings, claims, rules, verdicts } =
+    state.loadedDocument;
 
   return (
     <div className="space-y-6 select-none font-mono">
@@ -91,23 +95,26 @@ export const OverviewPage: React.FC = () => {
         description="Forensic posture, evidence provenance, and policy assessment summary."
       />
 
+      {/* Top Banner: Primary Posture & Cryptographic Verdicts */}
+      <VerdictBanner verdicts={verdicts || []} findings={findings || []} />
+
       {/* Dense Two-Column Grid: Forensic Instrument */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left Column: Facts, Coverage, Pipeline */}
-        <div className="flex flex-col gap-6">
-          <CaptureFacts capture={capture} />
-          <CoverageGlance coverage={coverage} />
-          <PipelineHealth coverage={coverage} />
-        </div>
-
-        {/* Right Column: Findings Summary, Provenance Distribution */}
+        {/* Left Column: Dominant Findings & Capture Facts */}
         <div className="flex flex-col gap-6">
           <FindingsSummary findings={findings} rules={rules} />
+          <CaptureFacts capture={capture} />
+        </div>
+
+        {/* Right Column: Provenance Distribution & Coverage Glance */}
+        <div className="flex flex-col gap-6">
           <ProvenanceDistribution
             claims={claims}
             runStatus={state.runStatus}
             captureName={capture.filename}
           />
+          <CoverageGlance coverage={coverage} />
+          <PipelineHealth coverage={coverage} />
         </div>
       </div>
     </div>

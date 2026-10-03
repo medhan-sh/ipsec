@@ -31,7 +31,12 @@ export const AppShell: React.FC = () => {
   const navigate = useNavigate();
   const { state, analyzeSelected, refreshCaptures } = useAppStore();
 
-  const [explorerCollapsed, setExplorerCollapsed] = useState(false);
+  const [explorerCollapsed, setExplorerCollapsed] = useState(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      return true;
+    }
+    return false;
+  });
   const [shortcutOpen, setShortcutOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
@@ -138,7 +143,10 @@ export const AppShell: React.FC = () => {
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <TopBar onOpenJson={() => setJsonModalOpen(true)} />
 
-          <main className="flex-1 overflow-y-auto p-6 bg-surface-base">
+          <main className="flex-1 overflow-y-auto p-4 sm:p-6 bg-surface-base relative">
+            {state.runStatus === "running" && (
+              <div className="sticky top-0 left-0 right-0 z-20 h-[2px] bg-gradient-to-r from-transparent via-signal to-transparent animate-pulse -mt-4 sm:-mt-6 mb-4 sm:mb-6" />
+            )}
             <Outlet />
           </main>
         </div>
