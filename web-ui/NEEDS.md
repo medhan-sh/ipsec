@@ -5,4 +5,4 @@ If a page agent needs a shared primitive, data field, or token modification, app
 
 ---
 
-*No current requests.*
+claims | Generic DetailDrawer (or ClaimDetailDrawer) | Shared DetailDrawer only accepts FindingItem; built page-level composite ClaimDetailDrawer using Sheet and tokens for claim inspection.
