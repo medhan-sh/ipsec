@@ -5,4 +5,4 @@ If a page agent needs a shared primitive, data field, or token modification, app
 
 ---
 
-*No current requests.*
+tunnels | CandidateSet in src/api/types.ts | In golden.mock.json and tui/models.py, CandidateSet has 'surviving' (not 'survivors'), 'universe_size: number' (not 'universe: string[]'), and 'field' is optional. Types should allow both variants.
