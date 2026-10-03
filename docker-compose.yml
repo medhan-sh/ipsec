@@ -69,3 +69,18 @@ services:
     command: ["tests/", "-v"]
     environment:
       - PYTHONPATH=/work/src
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ipsec-analyzer:dev
+    volumes:
+      - .:/work
+    working_dir: /work
+    entrypoint: ["python", "-m", "ipsec_analyzer.web", "--host", "0.0.0.0", "--port", "8765"]
+    ports:
+      - "127.0.0.1:8765:8765"
+    environment:
+      - PYTHONPATH=/work/src
+      - UMBRA_WEB_HOST=0.0.0.0

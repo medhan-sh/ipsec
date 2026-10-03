@@ -16,6 +16,26 @@ if [ "$1" = "tui" ] || [ "$1" = "--tui" ]; then
     exec "$SCRIPT_DIR/umbra-tui" "$@"
 fi
 
+# Route to Web mode if explicitly requested
+if [ "$1" = "web" ] || [ "$1" = "--web" ]; then
+    shift
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        if [ -f "$SCRIPT_DIR/.venv/bin/python" ]; then
+            PYTHON="$SCRIPT_DIR/.venv/bin/python"
+        elif command -v python3 >/dev/null 2>&1; then
+            PYTHON="python3"
+        elif command -v python >/dev/null 2>&1; then
+            PYTHON="python"
+        else
+            echo "umbra: neither docker nor python was found." >&2
+            exit 1
+        fi
+        export PYTHONPATH="$SCRIPT_DIR/src:${PYTHONPATH}"
+        exec "$PYTHON" -m ipsec_analyzer.web "$@"
+    fi
+    exec docker run --rm -p 127.0.0.1:8765:8765 -v "$PWD":/work -w /work -e PYTHONPATH=/work/src "$IMAGE" python -m ipsec_analyzer.web --host 0.0.0.0 "$@"
+fi
+
 # 0. Check for Docker. If docker is not available or daemon is inaccessible,
 # seamlessly fallback to the local Python CLI if available.
 if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then

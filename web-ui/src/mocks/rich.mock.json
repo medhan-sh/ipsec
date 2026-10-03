@@ -1,0 +1,557 @@
+{
+  "schema_version": "1.0",
+  "capture": {
+    "filename": "corp_perimeter_eval_2026.pcapng",
+    "sha256": "4a7d1ed414474e4033ac29ccb8653d9b1390499639e2307efcf0f7be5439c28e",
+    "packet_count": 14280,
+    "duration_s": 42.15,
+    "truncated": false
+  },
+  "coverage": {
+    "checks_total": 15,
+    "checks_found": 12,
+    "checks_passed": 3,
+    "checks_assessable": 12,
+    "checks_gap": 3,
+    "packets_skipped": 0,
+    "tshark_exit_clean": true,
+    "ike_sa_init_request_observed": true,
+    "ike_sa_init_response_observed": true,
+    "esp_tunnels_total": 3,
+    "esp_tunnels_missing_a_direction": 1,
+    "tshark_version": "4.4.18"
+  },
+  "claims": [
+    {
+      "field": "ike.sa.dh_group",
+      "value": { "name": "MODP-1024", "group_id": 2 },
+      "tier": "OBSERVED",
+      "confidence": 1.0,
+      "method": "Direct dissection of IKE_SA_INIT response SA payload transform",
+      "evidence": [1, 2],
+      "caveats": []
+    },
+    {
+      "field": "ike.sa.encryption",
+      "value": { "name": "3DES-CBC", "key_length": 192 },
+      "tier": "OBSERVED",
+      "confidence": 1.0,
+      "method": "Dissected selected transform from initiator proposal response",
+      "evidence": [2],
+      "caveats": []
+    },
+    {
+      "field": "ike.sa.integrity",
+      "value": { "name": "HMAC-MD5-96", "key_length": 128 },
+      "tier": "OBSERVED",
+      "confidence": 1.0,
+      "method": "Dissected selected transform from responder accept",
+      "evidence": [2],
+      "caveats": []
+    },
+    {
+      "field": "ike.protocol.version",
+      "value": "IKEv1",
+      "tier": "OBSERVED",
+      "confidence": 1.0,
+      "method": "ISAKMP header major/minor version field parsed directly",
+      "evidence": [14, 15],
+      "caveats": []
+    },
+    {
+      "field": "ikev1.exchange_type",
+      "value": "Aggressive",
+      "tier": "OBSERVED",
+      "confidence": 1.0,
+      "method": "ISAKMP exchange type field set to 4 (Aggressive Mode)",
+      "evidence": [14],
+      "caveats": []
+    },
+    {
+      "field": "esp.tunnel.spi.inbound",
+      "value": "0x3d713155",
+      "tier": "OBSERVED",
+      "confidence": 1.0,
+      "method": "ESP header SPI field extraction",
+      "evidence": [24, 25, 26],
+      "caveats": []
+    },
+    {
+      "field": "esp.tunnel.spi.outbound",
+      "value": "0xf918698d",
+      "tier": "OBSERVED",
+      "confidence": 1.0,
+      "method": "ESP header SPI field extraction",
+      "evidence": [27, 28],
+      "caveats": []
+    },
+    {
+      "field": "esp.tunnel.block_size",
+      "value": 8,
+      "tier": "INFERRED_SIDE_CHANNEL",
+      "confidence": 0.88,
+      "method": "GCD of packet size deltas across 142 HTTP response frames",
+      "evidence": [31, 35, 42, 55],
+      "caveats": ["Traffic burst duration was short (< 5s)", "TCP segment payload distribution was clustered"]
+    },
+    {
+      "field": "esp.tunnel.icv_length",
+      "value": 12,
+      "tier": "INFERRED_SIDE_CHANNEL",
+      "confidence": 0.92,
+      "method": "Residual offset analysis against known framing multiples",
+      "evidence": [45, 48, 52],
+      "caveats": []
+    },
+    {
+      "field": "esp.tunnel.null_encryption",
+      "value": false,
+      "tier": "INFERRED_SIDE_CHANNEL",
+      "confidence": 0.95,
+      "method": "Entropy test on ciphertext offset eliminated plaintext IP headers",
+      "evidence": [60, 62],
+      "caveats": []
+    },
+    {
+      "field": "esp.tunnel.ah_in_use",
+      "value": false,
+      "tier": "OBSERVED",
+      "confidence": 1.0,
+      "method": "IP protocol field scan showed protocol 50 (ESP), zero protocol 51 (AH)",
+      "evidence": [1, 100],
+      "caveats": []
+    },
+    {
+      "field": "esp.tunnel.cipher_suite",
+      "value": "3DES-CBC + HMAC-MD5-96",
+      "tier": "INFERRED_SIDE_CHANNEL",
+      "confidence": 0.84,
+      "method": "Constrained elimination against observed 8-byte block size and 12-byte ICV",
+      "evidence": [70, 71, 75],
+      "caveats": ["3DES-CBC and Blowfish-CBC are indistinguishable by wire geometry alone"]
+    },
+    {
+      "field": "ike.implementation.vendor",
+      "value": "Cisco IOS",
+      "tier": "INFERRED_IMPLEMENTATION_DEFAULT",
+      "confidence": 0.70,
+      "method": "Vendor ID hash payload sequence matching known Cisco ASA/IOS fingerprints",
+      "evidence": [1, 3],
+      "caveats": ["Vendor ID hashes can be spoofed or duplicated across appliances"]
+    },
+    {
+      "field": "ike.implementation.dpd_support",
+      "value": true,
+      "tier": "INFERRED_IMPLEMENTATION_DEFAULT",
+      "confidence": 0.65,
+      "method": "Inferred from identified Cisco IOS profile defaults",
+      "evidence": [1],
+      "caveats": []
+    },
+    {
+      "field": "esp.traffic.classifier.bulk_data",
+      "value": "Database Replication",
+      "tier": "ML_PREDICTION",
+      "confidence": 0.62,
+      "method": "Random forest classifier on inter-arrival time and packet sizing quantiles",
+      "evidence": [120, 135, 142],
+      "caveats": ["Model trained on corporate enterprise baseline, 8% false positive margin"]
+    },
+    {
+      "field": "esp.traffic.classifier.compression",
+      "value": "IPComp-Deflate",
+      "tier": "ML_PREDICTION",
+      "confidence": 0.58,
+      "method": "Markov transition model on entropy distributions",
+      "evidence": [180, 195],
+      "caveats": ["Uncertain whether entropy decrease is due to application-layer gzip"]
+    },
+    {
+      "field": "esp.anti_replay_window_size",
+      "value": null,
+      "tier": "NOT_OBSERVABLE",
+      "confidence": null,
+      "method": "Window size is enforced locally by the receiver and never signaled on wire",
+      "evidence": [],
+      "caveats": []
+    },
+    {
+      "field": "esp.rekey_interval_seconds",
+      "value": null,
+      "tier": "NOT_OBSERVABLE",
+      "confidence": null,
+      "method": "Capture duration (42s) too short to observe periodic rekey exchange",
+      "evidence": [],
+      "caveats": []
+    },
+    {
+      "field": "ike.pfs_enabled",
+      "value": null,
+      "tier": "NOT_OBSERVABLE",
+      "confidence": null,
+      "method": "CREATE_CHILD_SA exchange did not occur within capture window",
+      "evidence": [],
+      "caveats": []
+    },
+    {
+      "field": "ike.initiator.cookie",
+      "value": "0x7a892b1c5d3e4f01",
+      "tier": "OBSERVED",
+      "confidence": 1.0,
+      "method": "IKE header initiator SPI/cookie field",
+      "evidence": [1],
+      "caveats": []
+    },
+    {
+      "field": "ike.responder.cookie",
+      "value": "0x98f21c0e3a5d7b64",
+      "tier": "OBSERVED",
+      "confidence": 1.0,
+      "method": "IKE header responder SPI/cookie field",
+      "evidence": [2],
+      "caveats": []
+    },
+    {
+      "field": "ike.notify.nat_detection_source_ip",
+      "value": "present",
+      "tier": "OBSERVED",
+      "confidence": 1.0,
+      "method": "Dissected NAT_DETECTION_SOURCE_IP notify payload",
+      "evidence": [1, 2],
+      "caveats": []
+    },
+    {
+      "field": "esp.tunnel.lifetime_limit_heuristic",
+      "value": 28800,
+      "tier": "INFERRED_IMPLEMENTATION_DEFAULT",
+      "confidence": 0.55,
+      "method": "Standard default 8-hour phase 2 lifetime for Cisco endpoints",
+      "evidence": [1],
+      "caveats": []
+    },
+    {
+      "field": "esp.tunnel.directionality",
+      "value": "bidirectional",
+      "tier": "OBSERVED",
+      "confidence": 1.0,
+      "method": "Traffic matched on both SPI pairs across reciprocal source/destination IPs",
+      "evidence": [24, 27],
+      "caveats": []
+    },
+    {
+      "field": "ike.transform.extended_sequence_numbers",
+      "value": "ESN disabled",
+      "tier": "OBSERVED",
+      "confidence": 1.0,
+      "method": "Transform type 5 (ESN) attribute negotiated as 0",
+      "evidence": [2],
+      "caveats": []
+    }
+  ],
+  "candidate_sets": [
+    {
+      "field": "esp.tunnel.cipher_suite",
+      "sa_id": "spi:0x3d713155+0xf918698d",
+      "universe": [
+        "3DES-CBC + HMAC-MD5-96",
+        "3DES-CBC + HMAC-SHA1-96",
+        "DES-CBC + HMAC-MD5-96",
+        "AES-128-CBC + HMAC-SHA1-96",
+        "AES-128-GCM-16",
+        "AES-256-GCM-16",
+        "NULL-ENC + HMAC-SHA1-96"
+      ],
+      "eliminated": [
+        ["NULL-ENC + HMAC-SHA1-96", "Payload entropy test rejected plaintext headers"],
+        ["AES-128-GCM-16", "Observed packet framing contradicts 16-byte ICV and 4-byte salt"],
+        ["AES-256-GCM-16", "Observed packet framing contradicts 16-byte ICV and 4-byte salt"],
+        ["AES-128-CBC + HMAC-SHA1-96", "Observed delta GCD (8) contradicts 16-byte AES block size"]
+      ],
+      "indistinguishable": [
+        ["3DES-CBC + HMAC-MD5-96", "3DES-CBC + HMAC-SHA1-96", "DES-CBC + HMAC-MD5-96"]
+      ],
+      "survivors": [
+        "3DES-CBC + HMAC-MD5-96",
+        "3DES-CBC + HMAC-SHA1-96",
+        "DES-CBC + HMAC-MD5-96"
+      ]
+    },
+    {
+      "field": "esp.tunnel.cipher_suite",
+      "sa_id": "spi:0xaa11bb22+0xcc33dd44",
+      "universe": [
+        "AES-128-GCM-16",
+        "AES-256-GCM-16",
+        "ChaCha20-Poly1305",
+        "AES-128-CBC + HMAC-SHA256-128"
+      ],
+      "eliminated": [
+        ["AES-128-CBC + HMAC-SHA256-128", "No padding trailer modulo 16 observed"],
+        ["ChaCha20-Poly1305", "Transform proposal explicitly lacked ChaCha IDs"]
+      ],
+      "indistinguishable": [
+        ["AES-128-GCM-16", "AES-256-GCM-16"]
+      ],
+      "survivors": [
+        "AES-128-GCM-16",
+        "AES-256-GCM-16"
+      ]
+    },
+    {
+      "field": "esp.tunnel.cipher_suite",
+      "sa_id": "spi:0x55667788+none",
+      "universe": [
+        "AES-128-CBC + HMAC-SHA1-96",
+        "AES-256-CBC + HMAC-SHA1-96"
+      ],
+      "eliminated": [],
+      "indistinguishable": [
+        ["AES-128-CBC + HMAC-SHA1-96", "AES-256-CBC + HMAC-SHA1-96"]
+      ],
+      "survivors": [
+        "AES-128-CBC + HMAC-SHA1-96",
+        "AES-256-CBC + HMAC-SHA1-96"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "rule_id": "sixty_four_bit_block_cipher_in_esp",
+      "severity": "CRITICAL",
+      "category": "cryptography",
+      "title": "64-bit block cipher in use for ESP tunnel",
+      "tier": "INFERRED_SIDE_CHANNEL",
+      "evidence": [31, 35, 42],
+      "scope": "spi:0x3d713155+0xf918698d",
+      "references": ["RFC 8429 §3.1", "Sweet32 Vulnerability CVE-2016-2183"],
+      "recommendation": "Migrate the ESP tunnel to AES-GCM (128 or 256-bit) to eliminate collision vulnerabilities."
+    },
+    {
+      "rule_id": "weak_dh_group_negotiated",
+      "severity": "HIGH",
+      "category": "key_exchange",
+      "title": "Weak Diffie-Hellman group negotiated (MODP-1024)",
+      "tier": "OBSERVED",
+      "evidence": [1, 2],
+      "scope": "ike_sa:0x7a892b1c5d3e4f01",
+      "references": ["RFC 8247 §2.4", "NIST SP 800-77 Rev. 1"],
+      "recommendation": "Reconfigure IKE proposals to mandate DH Group 14 (MODP-2048) or Group 19 (ECP-256) minimum."
+    },
+    {
+      "rule_id": "ikev1_in_use",
+      "severity": "HIGH",
+      "category": "protocol_version",
+      "title": "Legacy IKEv1 protocol in use",
+      "tier": "OBSERVED",
+      "evidence": [14, 15],
+      "scope": "ike_sa:0x7a892b1c5d3e4f01",
+      "references": ["RFC 9395", "ANSSI IPsec Guide §3.1"],
+      "recommendation": "Upgrade remote gateway endpoint to IKEv2 (RFC 7296)."
+    },
+    {
+      "rule_id": "ikev1_aggressive_mode",
+      "severity": "HIGH",
+      "category": "authentication",
+      "title": "IKEv1 Aggressive Mode exposes pre-shared key hash",
+      "tier": "OBSERVED",
+      "evidence": [14],
+      "scope": "ike_sa:0x7a892b1c5d3e4f01",
+      "references": ["RFC 2409 §5.4", "CWE-523"],
+      "recommendation": "Immediately disable Aggressive Mode and migrate to Main Mode with certificates or IKEv2."
+    },
+    {
+      "rule_id": "weak_ike_sa_cipher",
+      "severity": "HIGH",
+      "category": "cryptography",
+      "title": "Weak encryption cipher negotiated for IKE SA (3DES-CBC)",
+      "tier": "OBSERVED",
+      "evidence": [2],
+      "scope": "ike_sa:0x7a892b1c5d3e4f01",
+      "references": ["RFC 8247 §2.1"],
+      "recommendation": "Configure IKE SA transform policy to allow AES-CBC or AES-GCM exclusively."
+    },
+    {
+      "rule_id": "weak_ike_sa_integrity",
+      "severity": "MEDIUM",
+      "category": "integrity",
+      "title": "MD5-based integrity algorithm negotiated for IKE SA",
+      "tier": "OBSERVED",
+      "evidence": [2],
+      "scope": "ike_sa:0x7a892b1c5d3e4f01",
+      "references": ["RFC 8247 §2.2"],
+      "recommendation": "Deprecate MD5 in favor of HMAC-SHA2-256 or AEAD suites."
+    },
+    {
+      "rule_id": "truncated_96_bit_icv",
+      "severity": "MEDIUM",
+      "category": "integrity",
+      "title": "Truncated 96-bit ICV used in ESP data plane",
+      "tier": "INFERRED_SIDE_CHANNEL",
+      "evidence": [45, 48],
+      "scope": "spi:0x3d713155+0xf918698d",
+      "references": ["RFC 4835 §3.1"],
+      "recommendation": "Upgrade to 128-bit truncated ICVs or AEAD algorithms."
+    },
+    {
+      "rule_id": "downgrade_exposure_mixed_strength",
+      "severity": "MEDIUM",
+      "category": "configuration",
+      "title": "Initiator proposals mix legacy 3DES with modern AES algorithms",
+      "tier": "OBSERVED",
+      "evidence": [1],
+      "scope": "ike_sa:0x7a892b1c5d3e4f01",
+      "references": ["RFC 8247 §3"],
+      "recommendation": "Remove legacy transform options from initiator policy."
+    },
+    {
+      "rule_id": "downgrade_exposure_weak_group_negotiable",
+      "severity": "MEDIUM",
+      "category": "key_exchange",
+      "title": "Initiator proposal includes MODP-768 and MODP-1024",
+      "tier": "OBSERVED",
+      "evidence": [1],
+      "scope": "ike_sa:0x7a892b1c5d3e4f01",
+      "references": ["RFC 8247 §2.4"],
+      "recommendation": "Enforce Group 14 minimum in security associations."
+    },
+    {
+      "rule_id": "partial_downgrade_protection",
+      "severity": "LOW",
+      "category": "negotiation",
+      "title": "Responder accepts weaker suite than highest proposed by initiator",
+      "tier": "OBSERVED",
+      "evidence": [1, 2],
+      "scope": "ike_sa:0x7a892b1c5d3e4f01",
+      "references": ["RFC 7296 §2.7"],
+      "recommendation": "Review responder priority policies to ensure strongest match selection."
+    },
+    {
+      "rule_id": "downgrade_exposure_hybrid_pq",
+      "severity": "LOW",
+      "category": "post_quantum",
+      "title": "No Post-Quantum Hybrid Key Exchange (ML-KEM) supported",
+      "tier": "OBSERVED",
+      "evidence": [1],
+      "scope": "ike_sa:0x7a892b1c5d3e4f01",
+      "references": ["IETF draft-ietf-ipsecme-ikev2-pq-hybrid"],
+      "recommendation": "Plan future support for post-quantum hybrid key exchange."
+    },
+    {
+      "rule_id": "ah_in_use",
+      "severity": "INFO",
+      "category": "architecture",
+      "title": "Authentication Header (AH) not detected; ESP in standard tunnel mode",
+      "tier": "OBSERVED",
+      "evidence": [1],
+      "scope": "global",
+      "references": ["RFC 4302"],
+      "recommendation": "ESP remains the standard recommended data plane security architecture."
+    }
+  ],
+  "passes": [
+    {
+      "rule_id": "null_encryption",
+      "title": "No NULL encryption detected on active tunnels",
+      "tier": "INFERRED_SIDE_CHANNEL",
+      "evidence": [60, 62],
+      "scope": "spi:0x3d713155+0xf918698d"
+    },
+    {
+      "rule_id": "ah_in_use",
+      "title": "No insecure AH protocol wrapping detected",
+      "tier": "OBSERVED",
+      "evidence": [1],
+      "scope": "global"
+    },
+    {
+      "rule_id": "esp_directionality",
+      "title": "Primary tunnel verified with reciprocal SPIs",
+      "tier": "OBSERVED",
+      "evidence": [24, 27],
+      "scope": "spi:0x3d713155+0xf918698d"
+    }
+  ],
+  "gaps": [
+    {
+      "rule_id": "anti_replay_not_observable",
+      "title": "Anti-replay window size is not observable on wire",
+      "gap_kind": "not_observable",
+      "required_tier": "OBSERVED",
+      "actual_tier": "NOT_OBSERVABLE",
+      "reason": "Anti-replay checks are executed locally by receiver state; window size is not transmitted.",
+      "scope": "spi:0x3d713155+0xf918698d"
+    },
+    {
+      "rule_id": "pfs_not_observable",
+      "title": "Perfect Forward Secrecy child SA exchange not observed",
+      "gap_kind": "missing_exchange",
+      "required_tier": "OBSERVED",
+      "actual_tier": "NOT_OBSERVABLE",
+      "reason": "Capture file ends before subsequent child SA rekey occurs.",
+      "scope": "ike_sa:0x7a892b1c5d3e4f01"
+    },
+    {
+      "rule_id": "tunnel_direction_missing",
+      "title": "Secondary ESP tunnel missing outbound return direction",
+      "gap_kind": "asymmetric_routing",
+      "required_tier": "OBSERVED",
+      "actual_tier": "NOT_OBSERVABLE",
+      "reason": "Only inbound SPI 0x55667788 was captured. Return path is unobserved.",
+      "scope": "spi:0x55667788+none"
+    }
+  ],
+  "verdicts": [
+    {
+      "sa_id": "spi:0x3d713155+0xf918698d",
+      "predicate": "sixty_four_bit_block_cipher",
+      "ambiguous": false,
+      "confidence": 0.88,
+      "basis_tier": "INFERRED_SIDE_CHANNEL",
+      "basis": "Packet length GCD arithmetic demonstrates 8-byte boundary alignment across 142 frames",
+      "outcome": true,
+      "surviving_true": ["3DES-CBC + HMAC-MD5-96", "3DES-CBC + HMAC-SHA1-96", "DES-CBC + HMAC-MD5-96"],
+      "surviving_false": []
+    },
+    {
+      "sa_id": "spi:0xaa11bb22+0xcc33dd44",
+      "predicate": "modern_aead_cipher",
+      "ambiguous": true,
+      "confidence": 0.75,
+      "basis_tier": "INFERRED_SIDE_CHANNEL",
+      "basis": "Framing fits AES-128-GCM and AES-256-GCM identically on the wire",
+      "outcome": "ambiguous",
+      "surviving_true": ["AES-128-GCM-16", "AES-256-GCM-16"],
+      "surviving_false": []
+    }
+  ],
+  "rules": {
+    "sixty_four_bit_block_cipher_in_esp": {
+      "title": "64-bit block cipher in use for ESP tunnel",
+      "passed_title": "No 64-bit block cipher in use for ESP tunnel",
+      "explanation": "64-bit block ciphers like 3DES, Blowfish, and DES are vulnerable to Birthday attacks (Sweet32). After approximately 32 GB of data under the same key, collision probability reaches dangerous levels.",
+      "recommendation": "Upgrade to AES-128 or AES-256 in GCM or CBC mode.",
+      "references": ["RFC 8429 §3.1", "Sweet32 (CVE-2016-2183)"]
+    },
+    "weak_dh_group_negotiated": {
+      "title": "Weak Diffie-Hellman group negotiated",
+      "passed_title": "No weak Diffie-Hellman group negotiated",
+      "explanation": "Diffie-Hellman groups with modulus sizes under 2048 bits (such as MODP-768 and MODP-1024) provide less than 112 bits of security and can be solved by well-funded adversaries.",
+      "recommendation": "Configure IKE proposals to mandate DH Group 14 (2048-bit) or Group 19 (256-bit elliptic curve) minimum.",
+      "references": ["RFC 8247 §2.4", "NIST SP 800-77 Rev. 1"]
+    },
+    "ikev1_in_use": {
+      "title": "Legacy IKEv1 protocol in use",
+      "passed_title": "Modern IKEv2 protocol in use",
+      "explanation": "IKEv1 lacks standard elliptic curve support, has known dead-peer detection race conditions, and is formally deprecated by the IETF in RFC 9395.",
+      "recommendation": "Migrate all IPsec tunnels to IKEv2.",
+      "references": ["RFC 9395", "RFC 7296"]
+    },
+    "ikev1_aggressive_mode": {
+      "title": "IKEv1 Aggressive Mode exposes pre-shared key hash",
+      "passed_title": "No IKEv1 Aggressive Mode detected",
+      "explanation": "In Aggressive Mode, the responder sends the pre-shared key hash in cleartext in the second message, allowing passive offline dictionary cracking.",
+      "recommendation": "Disable Aggressive Mode completely. Use IKEv2 or certificate-based authentication.",
+      "references": ["RFC 2409 §5.4", "CWE-523"]
+    }
+  }
+}

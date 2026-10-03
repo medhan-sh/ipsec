@@ -230,3 +230,31 @@ Every fact the tool reports is an atomic `Claim` carrying one of five provenance
 2. **Strictly Passive**: No packets are transmitted; no endpoints are probed or modified.
 3. **No Fabricated Data**: If a capture is truncated, incomplete, or uniform in packet size, an explicit **coverage gap** is reported rather than a fabricated guess.
 4. **Frozen Schema**: `findings.json` strictly adheres to the frozen `1.0` contract for external consumption.
+
+---
+
+## Web UI
+
+Umbra provides an illuminated evidence web console operating entirely offline with terminal discipline and dark mode:
+
+### Building and Running
+```bash
+# Build the web assets and start the local server
+make web
+
+# Or run using Docker Compose:
+docker compose up web
+
+# Or run natively with Python:
+cd web-ui && npm ci && npm run build
+python -m ipsec_analyzer.web
+```
+The console is served locally at `http://127.0.0.1:8765/`.
+
+### Development Mode (Mock Data)
+For frontend development without backend or capture dependencies:
+```bash
+cd web-ui
+npm run dev
+```
+Mock mode loads rich fixtures and displays a persistent amber "sample data" indicator.

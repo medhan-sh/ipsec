@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "capture": {
+    "filename": "empty_sample.pcap",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "packet_count": 0,
+    "duration_s": 0.0,
+    "truncated": false
+  },
+  "coverage": {
+    "checks_total": 15,
+    "checks_found": 0,
+    "checks_passed": 0,
+    "checks_assessable": 0,
+    "checks_gap": 15,
+    "packets_skipped": 0,
+    "tshark_exit_clean": true,
+    "ike_sa_init_request_observed": false,
+    "ike_sa_init_response_observed": false,
+    "esp_tunnels_total": 0,
+    "esp_tunnels_missing_a_direction": 0,
+    "tshark_version": "4.4.18"
+  },
+  "claims": [],
+  "candidate_sets": [],
+  "findings": [],
+  "passes": [],
+  "gaps": [],
+  "verdicts": [],
+  "rules": {}
+}
