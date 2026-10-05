@@ -544,7 +544,10 @@ def create_server(
 
 def run_server(host: str = "127.0.0.1", port: int = 8765) -> None:
     server = create_server(host=host, port=port)
-    print(f"Umbra Web UI listening at http://{host}:{port}/ (captures: {server.captures_dir})")
+    if host in ("0.0.0.0", "::"):
+        print(f"Umbra Web UI listening at http://localhost:{port}/ (http://127.0.0.1:{port}/) [bound to {host}:{port}] (captures: {server.captures_dir})")
+    else:
+        print(f"Umbra Web UI listening at http://{host}:{port}/ (captures: {server.captures_dir})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -8,6 +8,10 @@
 # console scripts and `import ipsec_analyzer` both work with no PYTHONPATH.
 FROM python:3.11-slim
 
+LABEL org.opencontainers.image.title="Umbra IPsec Security Platform" \
+      org.opencontainers.image.description="Passive non-decrypting IPsec (IKEv2/ESP) forensic analyzer" \
+      org.opencontainers.image.version="1.0.0"
+
 # Cross-platform environment settings: UTF-8 encoding and 256-color support
 # for rich Textual TUI rendering across Linux, macOS, and Windows/WSL.
 ENV PYTHONUNBUFFERED=1 \
@@ -57,5 +61,8 @@ RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
 # have write permissions for output reports and temporary files.
 WORKDIR /work
 RUN chmod 777 /work /tmp
+
+# Default Web UI port (when running umbra-web services)
+EXPOSE 8765
 
 ENTRYPOINT ["docker-entrypoint.sh"]

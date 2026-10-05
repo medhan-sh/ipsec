@@ -165,8 +165,8 @@ export const LandingPage: React.FC = () => {
             </div>
 
             <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold tracking-tight text-text-primary leading-[1.05]">
-              EVIDENCE EMERGING <br />
-              <span className="text-signal">FROM DARKNESS.</span>
+              UMBRA <br />
+              <span className="text-signal">PASSIVE IPSEC FORENSICS.</span>
             </h1>
 
             <p className="max-w-2xl text-xs sm:text-sm text-text-secondary font-sans leading-relaxed pt-1">

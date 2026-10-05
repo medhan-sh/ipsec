@@ -16,6 +16,7 @@ services:
       dockerfile: Dockerfile.web
     image: ipsec-analyzer-web:dev
     container_name: umbra-web
+    restart: unless-stopped
     volumes:
       - ./captures:/work/captures
       - ./src:/work/src
@@ -25,6 +26,12 @@ services:
     environment:
       - PYTHONPATH=/work/src
       - UMBRA_WEB_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/status')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
   # ── Interactive TUI (Textual console) ───────────────────────────────
   tui:
