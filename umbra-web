@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# umbra-web — Launcher for the Umbra Web UI.
+# Runs the containerized web UI with pre-built React frontend.
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+IMAGE="ipsec-analyzer-web:dev"
+
+if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+    if [ -f "$SCRIPT_DIR/.venv/bin/python" ]; then
+        PYTHON="$SCRIPT_DIR/.venv/bin/python"
+    elif command -v python3 >/dev/null 2>&1; then
+        PYTHON="python3"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON="python"
+    else
+        echo "umbra-web: neither docker nor python was found." >&2
+        exit 1
+    fi
+    export PYTHONPATH="$SCRIPT_DIR/src:${PYTHONPATH}"
+    exec "$PYTHON" -m ipsec_analyzer.web "$@"
+fi
+
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    echo "umbra-web: building web image '$IMAGE' (first run only)..." >&2
+    docker build -f "$SCRIPT_DIR/Dockerfile.web" -t "$IMAGE" "$SCRIPT_DIR"
+fi
+
+echo "Starting Umbra Web UI on http://127.0.0.1:8765 ..."
+exec docker run --rm -it -p 127.0.0.1:8765:8765 -v "$PWD/captures":/work/captures -v "$PWD/src":/work/src -e PYTHONPATH=/work/src "$IMAGE" umbra-web --host 0.0.0.0 --port 8765 "$@"

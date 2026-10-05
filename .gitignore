@@ -8,3 +8,5 @@ captures/*
 !captures/.gitkeep
 !captures/FETCH.md
 reports
+web-ui/node_modules
+web-ui/dist

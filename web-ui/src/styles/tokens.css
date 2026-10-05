@@ -1,0 +1,46 @@
+:root {
+  /* Surfaces */
+  --surface-chrome: #000000;
+  --surface-base: #040806;
+  --surface-panel: #08100c;
+  --surface-raised: #0d1812;
+
+  /* Borders */
+  --border-hairline: #17261d;
+  --border-strong: #24402f;
+
+  /* Typography / Text */
+  --text-primary: #d3ecdd;
+  --text-secondary: #82a592;
+  --text-tertiary: #5f8270;
+
+  /* Signal Green */
+  --signal-green: #00ff7f;
+  --signal-dim: #00b35a;
+  --signal-faint: rgba(0, 255, 127, 0.12);
+
+  /* Severity */
+  --severity-critical: #ff4d5e;
+  --severity-high: #ff8a3d;
+  --severity-medium: #ffd23f;
+  --severity-low: #3fb8ff;
+  --severity-info: #82a592;
+
+  /* Sample Data / Warning Amber */
+  --color-amber-sample: #ffd23f;
+
+  /* Motion Tokens */
+  --motion-duration-micro: 120ms;
+  --motion-duration-layout: 180ms;
+  --motion-duration-reveal: 450ms;
+  --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

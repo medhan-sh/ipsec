@@ -18,6 +18,7 @@ dev = [
 [project.scripts]
 umbra = "ipsec_analyzer.cli:main"
 umbra-tui = "ipsec_analyzer.tui.app:main"
+umbra-web = "ipsec_analyzer.web.__main__:main"
 ipsec-analyze = "ipsec_analyzer.cli:main"
 ipsec-tui = "ipsec_analyzer.tui.app:main"
 

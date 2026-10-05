@@ -14,6 +14,15 @@ case "$1" in
         shift
         exec umbra "$@"
         ;;
+    umbra-web)
+        shift
+        # If the pre-built frontend exists (Dockerfile.web), point the
+        # server at it so it works without a bind-mounted web-ui/dist.
+        if [ -d "/opt/umbra-web/dist" ] && [ ! -d "/work/web-ui/dist" ]; then
+            export UMBRA_STATIC_DIR="/opt/umbra-web/dist"
+        fi
+        exec python -m ipsec_analyzer.web "$@"
+        ;;
     pytest)
         shift
         exec pytest "$@"

@@ -21,7 +21,7 @@ else
 DOCKER_USER :=
 endif
 
-.PHONY: build test clean
+.PHONY: build test clean web-build web web-docker
 
 build:
 	docker build -t $(IMAGE) .
@@ -32,6 +32,16 @@ build:
 # keeps a no-op rebuild fast (seconds, not a full reinstall).
 test: build
 	docker run --rm $(DOCKER_USER) -v "$(CURDIR)":/work -w /work --entrypoint pytest $(IMAGE) tests/ -v
+
+web-build:
+	cd web-ui && npm ci && npm run build
+
+web:
+	python -m ipsec_analyzer.web
+
+# Self-contained web UI: builds frontend in Docker, no host Node needed.
+web-docker:
+	docker compose up --build web
 
 clean:
 	rm -f report.html findings.json
